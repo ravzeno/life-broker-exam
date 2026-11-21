@@ -56,7 +56,8 @@ function show(id) { ['home', 'exam', 'result'].forEach(x => el(x).classList.togg
 function start() {
   if (!state.started || state.finished) {
     state = { started: Date.now(), finished: false, answers: {}, index: 0,
-      order: shuffled(QUESTIONS.length), optionOrders: QUESTIONS.map(q => shuffled(q.options.length)) };
+      order: shuffled(QUESTIONS.length),
+      optionOrders: QUESTIONS.map(q => keepsOriginalLetters(q) ? identity(q.options.length) : shuffled(q.options.length)) };
     save();
   }
   show('exam'); render(); tick();
