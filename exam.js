@@ -1,5 +1,5 @@
 const KEY = 'life-broker-exam-v1';
-const DURATION = 120 * 60 * 1000;
+const DURATION = 150 * 60 * 1000;
 const letters = ['ก', 'ข', 'ค', 'ง'];
 const el = id => document.getElementById(id);
 let state = { started: null, finished: false, answers: {}, index: 0 };
@@ -104,7 +104,7 @@ function showResult() {
   el('scoreCard').classList.toggle('hidden', verified === 0);
   el('score').textContent = correct + ' / ' + verified;
   el('scoreDetail').textContent = 'ตอบผิด ' + (gradedAnswered - correct) + ' ข้อ · ไม่ตอบในข้อที่มีเฉลย ' + (verified - gradedAnswered) + ' ข้อ';
-  el('gradingNotice').textContent = verified ? 'ตอบถูก ' + correct + ' จาก ' + verified + ' ข้อที่มีเฉลยในเอกสาร (จากทั้งหมด ' + QUESTIONS.length + ' ข้อ) ข้อที่ยังไม่มีเฉลยไม่รวมในการคิดคะแนน' : 'ยังไม่มีชุดเฉลยที่ตรวจสอบแล้วจากเอกสาร จึงไม่สามารถคำนวณคะแนนถูกผิดหรืออธิบายข้อที่ผิดอย่างน่าเชื่อถือได้ ระบบแสดงคำตอบที่เลือกและหน้าต้นฉบับเพื่อทบทวน';
+  el('gradingNotice').textContent = verified ? 'ตอบถูก ' + correct + ' จาก ' + verified + ' ข้อที่มีเฉลยในชุดข้อสอบ (จากทั้งหมด ' + QUESTIONS.length + ' ข้อ) ข้อที่ยังไม่มีเฉลยไม่รวมในการคิดคะแนน' : 'ยังไม่มีชุดเฉลยที่ตรวจสอบแล้วจากเอกสาร จึงไม่สามารถคำนวณคะแนนถูกผิดหรืออธิบายข้อที่ผิดอย่างน่าเชื่อถือได้ ระบบแสดงคำตอบที่เลือกและหน้าต้นฉบับเพื่อทบทวน';
   el('reviews').replaceChildren();
   QUESTIONS.forEach((q, i) => {
     const a = state.answers[i], box = document.createElement('div'), h = document.createElement('strong'), p = document.createElement('p'), r = document.createElement('p'), note = document.createElement('p');
