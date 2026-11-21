@@ -107,11 +107,35 @@ function showResult() {
   el('gradingNotice').textContent = verified ? 'ตอบถูก ' + correct + ' จาก ' + verified + ' ข้อที่มีเฉลยในชุดข้อสอบ (จากทั้งหมด ' + QUESTIONS.length + ' ข้อ) ข้อที่ยังไม่มีเฉลยไม่รวมในการคิดคะแนน' : 'ยังไม่มีชุดเฉลยที่ตรวจสอบแล้วจากเอกสาร จึงไม่สามารถคำนวณคะแนนถูกผิดหรืออธิบายข้อที่ผิดอย่างน่าเชื่อถือได้ ระบบแสดงคำตอบที่เลือกและหน้าต้นฉบับเพื่อทบทวน';
   el('reviews').replaceChildren();
   QUESTIONS.forEach((q, i) => {
-    const a = state.answers[i], box = document.createElement('div'), h = document.createElement('strong'), p = document.createElement('p'), r = document.createElement('p'), note = document.createElement('p');
-    box.className = 'review'; h.textContent = 'ข้อ ' + (i + 1) + ' • ' + q.subject + ' (PDF หน้า ' + q.page + ')';
-    p.textContent = q.question; r.textContent = 'คำตอบของคุณ: ' + (a === undefined ? 'ไม่ได้ตอบ' : letters[a] + '. ' + q.options[a]);
-    note.className = 'muted small'; note.textContent = Number.isInteger(q.answer) && q.answer >= 0 && q.answer < q.options.length ? 'เฉลย: ' + letters[q.answer] + ' • ' + (q.explanation || 'ยังไม่มีคำอธิบาย') : 'เฉลย: รอการตรวจสอบ';
-    box.append(h, p, r, note); el('reviews').append(box);
+    const a = state.answers[i], hasAnswer = Number.isInteger(q.answer) && q.answer >= 0 && q.answer < q.options.length;
+    const result = a === undefined ? 'blank' : !hasAnswer ? 'pending' : a === q.answer ? 'correct' : 'incorrect';
+    const box = document.createElement('article'), head = document.createElement('div'), h = document.createElement('strong');
+    const badge = document.createElement('span'), p = document.createElement('p'), options = document.createElement('div');
+    const note = document.createElement('p');
+    box.className = 'review review--' + result;
+    head.className = 'review-head'; h.className = 'review-meta';
+    h.textContent = 'ข้อ ' + (i + 1) + ' • ' + q.subject + ' (PDF หน้า ' + q.page + ')';
+    badge.className = 'review-badge';
+    badge.textContent = { correct: 'ตอบถูก', incorrect: 'ตอบผิด', blank: 'ไม่ได้ตอบ', pending: 'รอตรวจเฉลย' }[result];
+    head.append(h, badge); p.className = 'review-question'; p.textContent = q.question;
+    options.className = 'review-options';
+    q.options.forEach((option, j) => {
+      const row = document.createElement('div'), letter = document.createElement('span'), text = document.createElement('span'), tags = document.createElement('span');
+      row.className = 'review-option' + (hasAnswer && j === q.answer ? ' is-answer' : '') + (j === a && hasAnswer && j !== q.answer ? ' is-selected-wrong' : '');
+      letter.className = 'review-letter'; letter.textContent = letters[j];
+      text.className = 'review-option-text'; text.textContent = option;
+      tags.className = 'review-tags';
+      if (j === a) { const tag = document.createElement('span'); tag.textContent = 'คำตอบของคุณ'; tags.append(tag); }
+      if (hasAnswer && j === q.answer) { const tag = document.createElement('span'); tag.textContent = 'เฉลย'; tags.append(tag); }
+      row.append(letter, text, tags); options.append(row);
+    });
+    box.append(head, p, options);
+    if (!hasAnswer || q.explanation) {
+      note.className = 'review-note';
+      note.textContent = !hasAnswer ? 'เฉลย: รอการตรวจสอบ' : 'คำอธิบาย: ' + q.explanation;
+      box.append(note);
+    }
+    el('reviews').append(box);
   });
 }
 function downloadResults() {
