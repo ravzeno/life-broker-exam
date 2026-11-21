@@ -5,6 +5,27 @@ const el = id => document.getElementById(id);
 let state = { started: null, finished: false, answers: {}, index: 0 };
 let timerId;
 
+function identity(n) { return Array.from({ length: n }, (_, i) => i); }
+function shuffled(n) {
+  const result = identity(n);
+  for (let i = n - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+function isPermutation(value, length) {
+  return Array.isArray(value) && value.length === length &&
+    value.every(x => Number.isInteger(x) && x >= 0 && x < length) && new Set(value).size === length;
+}
+// Some answer choices and explanations refer to the original choice letters.
+function keepsOriginalLetters(q) {
+  return [q.question, ...q.options, q.explanation || ''].some(text =>
+    /(?:ทั้ง|เฉพาะ|ถูก|ผิด|เว้น|ข้อ|เฉลย)\s*(?:ข้อ)?\s*[กขคง](?:\.|\s|และ|$)/.test(text));
+}
+function questionId(position) { return state.order[position]; }
+function optionLabel(q, original, position) { return letters[keepsOriginalLetters(q) ? original : position]; }
+
 // Ignore invalid or obsolete saved data rather than letting it break the exam.
 try {
   const saved = JSON.parse(localStorage.getItem(KEY));
@@ -22,7 +43,9 @@ try {
       finished: saved.finished === true,
       ended: Number.isFinite(saved.ended) ? saved.ended : undefined,
       answers,
-      index: Number.isInteger(saved.index) ? Math.max(0, Math.min(QUESTIONS.length - 1, saved.index)) : 0
+      index: Number.isInteger(saved.index) ? Math.max(0, Math.min(QUESTIONS.length - 1, saved.index)) : 0,
+      order: isPermutation(saved.order, QUESTIONS.length) ? saved.order : identity(QUESTIONS.length),
+      optionOrders: QUESTIONS.map((q, i) => isPermutation(saved.optionOrders?.[i], q.options.length) ? saved.optionOrders[i] : identity(q.options.length))
     };
   }
 } catch (_) { /* Storage can be unavailable or contain invalid JSON. */ }
@@ -32,7 +55,8 @@ function save() {
 function show(id) { ['home', 'exam', 'result'].forEach(x => el(x).classList.toggle('hidden', x !== id)); }
 function start() {
   if (!state.started || state.finished) {
-    state = { started: Date.now(), finished: false, answers: {}, index: 0 };
+    state = { started: Date.now(), finished: false, answers: {}, index: 0,
+      order: shuffled(QUESTIONS.length), optionOrders: QUESTIONS.map(q => shuffled(q.options.length)) };
     save();
   }
   show('exam'); render(); tick();
@@ -55,35 +79,35 @@ function expired() {
 function render() {
   if (expired()) return;
   show('exam');
-  const i = state.index, q = QUESTIONS[i], n = Object.keys(state.answers).length;
+  const position = state.index, i = questionId(position), q = QUESTIONS[i], n = Object.keys(state.answers).length;
   el('subject').textContent = q.subject + ' • หน้า ' + q.page + ' ของ PDF';
-  el('count').textContent = 'ข้อ ' + (i + 1) + ' / ' + QUESTIONS.length;
+  el('count').textContent = 'ข้อ ' + (position + 1) + ' / ' + QUESTIONS.length;
   el('answered').textContent = 'ตอบแล้ว ' + n + ' ข้อ';
   el('bar').style.width = (n / QUESTIONS.length * 100) + '%';
   el('question').textContent = q.question;
   el('options').replaceChildren();
-  q.options.forEach((option, j) => {
+  state.optionOrders[i].forEach((j, displayIndex) => {
     const b = document.createElement('button'), k = document.createElement('b'), t = document.createElement('span');
     b.className = 'option' + (state.answers[i] === j ? ' selected' : '');
     b.setAttribute('aria-pressed', String(state.answers[i] === j));
-    k.textContent = letters[j]; t.textContent = option; b.append(k, t);
+    k.textContent = optionLabel(q, j, displayIndex); t.textContent = q.options[j]; b.append(k, t);
     b.onclick = () => { if (expired()) return; state.answers[i] = j; save(); render(); };
     el('options').append(b);
   });
   el('numbers').replaceChildren();
   QUESTIONS.forEach((_, j) => {
     const b = document.createElement('button');
-    b.className = 'num' + (state.answers[j] !== undefined ? ' answered' : '') + (j === i ? ' current' : '');
+    b.className = 'num' + (state.answers[questionId(j)] !== undefined ? ' answered' : '') + (j === position ? ' current' : '');
     b.textContent = j + 1;
-    b.setAttribute('aria-label', 'ข้อ ' + (j + 1) + (state.answers[j] !== undefined ? ' ตอบแล้ว' : ' ยังไม่ตอบ'));
-    if (j === i) b.setAttribute('aria-current', 'step');
+    b.setAttribute('aria-label', 'ข้อ ' + (j + 1) + (state.answers[questionId(j)] !== undefined ? ' ตอบแล้ว' : ' ยังไม่ตอบ'));
+    if (j === position) b.setAttribute('aria-current', 'step');
     b.onclick = () => { if (expired()) return; state.index = j; save(); render(); window.scrollTo(0, 0); };
     el('numbers').append(b);
   });
   el('remaining').textContent = 'ยังไม่ตอบ ' + (QUESTIONS.length - n) + ' ข้อ';
 }
 function move(d) { if (expired()) return; state.index = Math.min(QUESTIONS.length - 1, Math.max(0, state.index + d)); save(); render(); window.scrollTo(0, 0); }
-function clearAnswer() { if (expired()) return; delete state.answers[state.index]; save(); render(); }
+function clearAnswer() { if (expired()) return; delete state.answers[questionId(state.index)]; save(); render(); }
 function submitExam(auto) {
   if (state.finished) return;
   if (!auto && !confirm('ยืนยันส่งข้อสอบ? เมื่อส่งแล้วจะเปลี่ยนคำตอบไม่ได้')) return;
@@ -105,8 +129,31 @@ function showResult() {
   el('score').textContent = correct + ' / ' + verified;
   el('scoreDetail').textContent = 'ตอบผิด ' + (gradedAnswered - correct) + ' ข้อ · ไม่ตอบในข้อที่มีเฉลย ' + (verified - gradedAnswered) + ' ข้อ';
   el('gradingNotice').textContent = verified ? 'ตอบถูก ' + correct + ' จาก ' + verified + ' ข้อที่มีเฉลยในชุดข้อสอบ (จากทั้งหมด ' + QUESTIONS.length + ' ข้อ) ข้อที่ยังไม่มีเฉลยไม่รวมในการคิดคะแนน' : 'ยังไม่มีชุดเฉลยที่ตรวจสอบแล้วจากเอกสาร จึงไม่สามารถคำนวณคะแนนถูกผิดหรืออธิบายข้อที่ผิดอย่างน่าเชื่อถือได้ ระบบแสดงคำตอบที่เลือกและหน้าต้นฉบับเพื่อทบทวน';
-  el('reviews').replaceChildren();
+  const subjects = new Map();
   QUESTIONS.forEach((q, i) => {
+    const summary = subjects.get(q.subject) || { total: 0, correct: 0, wrong: 0, blank: 0, pending: 0 };
+    if (!Number.isInteger(q.answer) || q.answer < 0 || q.answer >= q.options.length) summary.pending++;
+    else {
+      summary.total++;
+      if (state.answers[i] === undefined) summary.blank++;
+      else if (state.answers[i] === q.answer) summary.correct++;
+      else summary.wrong++;
+    }
+    subjects.set(q.subject, summary);
+  });
+  el('subjectScores').replaceChildren();
+  subjects.forEach((score, subject) => {
+    const card = document.createElement('div'), title = document.createElement('strong');
+    const value = document.createElement('div'), detail = document.createElement('div');
+    card.className = 'subject-score'; title.textContent = subject; value.className = 'subject-score-value';
+    value.textContent = score.correct + ' / ' + score.total;
+    detail.className = 'subject-score-detail';
+    detail.textContent = 'ผิด ' + score.wrong + ' ข้อ · ไม่ตอบ ' + score.blank + ' ข้อ' + (score.pending ? ' · รอเฉลย ' + score.pending + ' ข้อ' : '');
+    card.append(title, value, detail); el('subjectScores').append(card);
+  });
+  el('reviews').replaceChildren();
+  state.order.forEach((i, position) => {
+    const q = QUESTIONS[i];
     const a = state.answers[i], hasAnswer = Number.isInteger(q.answer) && q.answer >= 0 && q.answer < q.options.length;
     const result = a === undefined ? 'blank' : !hasAnswer ? 'pending' : a === q.answer ? 'correct' : 'incorrect';
     const box = document.createElement('article'), head = document.createElement('div'), h = document.createElement('strong');
@@ -114,16 +161,16 @@ function showResult() {
     const note = document.createElement('p');
     box.className = 'review review--' + result;
     head.className = 'review-head'; h.className = 'review-meta';
-    h.textContent = 'ข้อ ' + (i + 1) + ' • ' + q.subject + ' (PDF หน้า ' + q.page + ')';
+    h.textContent = 'ข้อ ' + (position + 1) + ' • ' + q.subject + ' (PDF หน้า ' + q.page + ')';
     badge.className = 'review-badge';
     badge.textContent = { correct: 'ตอบถูก', incorrect: 'ตอบผิด', blank: 'ไม่ได้ตอบ', pending: 'รอตรวจเฉลย' }[result];
     head.append(h, badge); p.className = 'review-question'; p.textContent = q.question;
     options.className = 'review-options';
-    q.options.forEach((option, j) => {
+    state.optionOrders[i].forEach((j, displayIndex) => {
       const row = document.createElement('div'), letter = document.createElement('span'), text = document.createElement('span'), tags = document.createElement('span');
       row.className = 'review-option' + (hasAnswer && j === q.answer ? ' is-answer' : '') + (j === a && hasAnswer && j !== q.answer ? ' is-selected-wrong' : '');
-      letter.className = 'review-letter'; letter.textContent = letters[j];
-      text.className = 'review-option-text'; text.textContent = option;
+      letter.className = 'review-letter'; letter.textContent = optionLabel(q, j, displayIndex);
+      text.className = 'review-option-text'; text.textContent = q.options[j];
       tags.className = 'review-tags';
       if (j === a) { const tag = document.createElement('span'); tag.textContent = 'คำตอบของคุณ'; tags.append(tag); }
       if (hasAnswer && j === q.answer) { const tag = document.createElement('span'); tag.textContent = 'เฉลย'; tags.append(tag); }
@@ -139,7 +186,7 @@ function showResult() {
   });
 }
 function downloadResults() {
-  const blob = new Blob([JSON.stringify({ answers: state.answers, started: state.started, ended: state.ended }, null, 2)], { type: 'application/json' });
+  const blob = new Blob([JSON.stringify({ answers: state.answers, order: state.order, optionOrders: state.optionOrders, started: state.started, ended: state.ended }, null, 2)], { type: 'application/json' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'exam-results.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 function resetExam() { if (confirm('ล้างคำตอบเดิมและเริ่มสอบใหม่?')) { try { localStorage.removeItem(KEY); } catch (_) {} location.reload(); } }
