@@ -100,6 +100,10 @@ function showResult() {
   el('usedTime').textContent = Math.floor(used / 60000) + ' นาที';
   const verified = QUESTIONS.filter(q => Number.isInteger(q.answer) && q.answer >= 0 && q.answer < q.options.length).length;
   const correct = QUESTIONS.reduce((count, q, i) => count + (Number.isInteger(q.answer) && q.answer >= 0 && q.answer < q.options.length && state.answers[i] === q.answer ? 1 : 0), 0);
+  const gradedAnswered = QUESTIONS.reduce((count, q, i) => count + (Number.isInteger(q.answer) && q.answer >= 0 && q.answer < q.options.length && state.answers[i] !== undefined ? 1 : 0), 0);
+  el('scoreCard').classList.toggle('hidden', verified === 0);
+  el('score').textContent = correct + ' / ' + verified;
+  el('scoreDetail').textContent = 'ตอบผิด ' + (gradedAnswered - correct) + ' ข้อ · ไม่ตอบในข้อที่มีเฉลย ' + (verified - gradedAnswered) + ' ข้อ';
   el('gradingNotice').textContent = verified ? 'ตอบถูก ' + correct + ' จาก ' + verified + ' ข้อที่มีเฉลยในเอกสาร (จากทั้งหมด ' + QUESTIONS.length + ' ข้อ) ข้อที่ยังไม่มีเฉลยไม่รวมในการคิดคะแนน' : 'ยังไม่มีชุดเฉลยที่ตรวจสอบแล้วจากเอกสาร จึงไม่สามารถคำนวณคะแนนถูกผิดหรืออธิบายข้อที่ผิดอย่างน่าเชื่อถือได้ ระบบแสดงคำตอบที่เลือกและหน้าต้นฉบับเพื่อทบทวน';
   el('reviews').replaceChildren();
   QUESTIONS.forEach((q, i) => {
