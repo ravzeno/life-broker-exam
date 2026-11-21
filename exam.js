@@ -1,6 +1,16 @@
 const KEY = 'life-broker-exam-v1';
 const DURATION = 150 * 60 * 1000;
 const letters = ['ก', 'ข', 'ค', 'ง'];
+const EXAM_SUBJECTS = [
+  { name: 'จรรยาบรรณและศีลธรรม', count: 10 },
+  { name: 'ความรู้ทั่วไปเกี่ยวกับการประกันชีวิต', count: 50 },
+  { name: 'ประมวลกฎหมายแพ่งและพาณิชย์', count: 20 },
+  { name: 'พระราชบัญญัติประกันชีวิต', count: 20 }
+];
+const LEGACY_QUESTION_COUNT = 200;
+// PDF pages 58 and 59 repeat the same claim-proof question with identical choices.
+// Retain both bank entries for old attempts, but use only one in new exams.
+const DUPLICATE_QUESTION_IDS = new Set([160]);
 const el = id => document.getElementById(id);
 let state = { started: null, finished: false, answers: {}, index: 0 };
 let timerId;
@@ -18,6 +28,23 @@ function isPermutation(value, length) {
   return Array.isArray(value) && value.length === length &&
     value.every(x => Number.isInteger(x) && x >= 0 && x < length) && new Set(value).size === length;
 }
+function isQuestionOrder(value) {
+  return Array.isArray(value) && (value.length === 100 || value.length === LEGACY_QUESTION_COUNT) &&
+    value.every(x => Number.isInteger(x) && x >= 0 && x < QUESTIONS.length) && new Set(value).size === value.length;
+}
+function isStandardExam(order) {
+  return order.length === 100 && EXAM_SUBJECTS.every(subject =>
+    order.filter(i => QUESTIONS[i].subject === subject.name).length === subject.count);
+}
+function newExamOrder() {
+  const chosen = [];
+  EXAM_SUBJECTS.forEach(subject => {
+    const available = QUESTIONS.map((q, i) => ({ q, i })).filter(({ q, i }) => q.subject === subject.name && !DUPLICATE_QUESTION_IDS.has(i));
+    if (available.length < subject.count) throw new Error('มีข้อสอบหมวด ' + subject.name + ' ไม่เพียงพอ');
+    chosen.push(...shuffled(available.length).slice(0, subject.count).map(i => available[i].i));
+  });
+  return shuffled(chosen.length).map(i => chosen[i]);
+}
 // Some answer choices and explanations refer to the original choice letters.
 function keepsOriginalLetters(q) {
   return [q.question, ...q.options, q.explanation || ''].some(text =>
@@ -30,11 +57,14 @@ function optionLabel(q, original, position) { return letters[keepsOriginalLetter
 try {
   const saved = JSON.parse(localStorage.getItem(KEY));
   if (saved && Number.isFinite(saved.started) && saved.started > 0) {
+    // Older attempts contain all 200 original questions; new questions are appended.
+    const order = isQuestionOrder(saved.order) ? saved.order : identity(Math.min(LEGACY_QUESTION_COUNT, QUESTIONS.length));
+    const included = new Set(order);
     const answers = {};
     if (saved.answers && typeof saved.answers === 'object') {
       for (const [key, value] of Object.entries(saved.answers)) {
         const index = Number(key);
-        if (Number.isInteger(index) && index >= 0 && index < QUESTIONS.length &&
+        if (Number.isInteger(index) && included.has(index) &&
             Number.isInteger(value) && value >= 0 && value < QUESTIONS[index].options.length) answers[index] = value;
       }
     }
@@ -43,8 +73,8 @@ try {
       finished: saved.finished === true,
       ended: Number.isFinite(saved.ended) ? saved.ended : undefined,
       answers,
-      index: Number.isInteger(saved.index) ? Math.max(0, Math.min(QUESTIONS.length - 1, saved.index)) : 0,
-      order: isPermutation(saved.order, QUESTIONS.length) ? saved.order : identity(QUESTIONS.length),
+      index: Number.isInteger(saved.index) ? Math.max(0, Math.min(order.length - 1, saved.index)) : 0,
+      order,
       optionOrders: QUESTIONS.map((q, i) => isPermutation(saved.optionOrders?.[i], q.options.length) ? saved.optionOrders[i] : identity(q.options.length))
     };
   }
@@ -55,8 +85,11 @@ function save() {
 function show(id) { ['home', 'exam', 'result'].forEach(x => el(x).classList.toggle('hidden', x !== id)); }
 function start() {
   if (!state.started || state.finished) {
+    let order;
+    try { order = newExamOrder(); }
+    catch (error) { alert(error.message); return; }
     state = { started: Date.now(), finished: false, answers: {}, index: 0,
-      order: shuffled(QUESTIONS.length),
+      order,
       optionOrders: QUESTIONS.map(q => keepsOriginalLetters(q) ? identity(q.options.length) : shuffled(q.options.length)) };
     save();
   }
@@ -82,9 +115,9 @@ function render() {
   show('exam');
   const position = state.index, i = questionId(position), q = QUESTIONS[i], n = Object.keys(state.answers).length;
   el('subject').textContent = q.subject + ' • หน้า ' + q.page + ' ของ PDF';
-  el('count').textContent = 'ข้อ ' + (position + 1) + ' / ' + QUESTIONS.length;
+  el('count').textContent = 'ข้อ ' + (position + 1) + ' / ' + state.order.length;
   el('answered').textContent = 'ตอบแล้ว ' + n + ' ข้อ';
-  el('bar').style.width = (n / QUESTIONS.length * 100) + '%';
+  el('bar').style.width = (n / state.order.length * 100) + '%';
   el('question').textContent = q.question;
   el('options').replaceChildren();
   state.optionOrders[i].forEach((j, displayIndex) => {
@@ -96,7 +129,7 @@ function render() {
     el('options').append(b);
   });
   el('numbers').replaceChildren();
-  QUESTIONS.forEach((_, j) => {
+  state.order.forEach((_, j) => {
     const b = document.createElement('button');
     b.className = 'num' + (state.answers[questionId(j)] !== undefined ? ' answered' : '') + (j === position ? ' current' : '');
     b.textContent = j + 1;
@@ -105,9 +138,9 @@ function render() {
     b.onclick = () => { if (expired()) return; state.index = j; save(); render(); window.scrollTo(0, 0); };
     el('numbers').append(b);
   });
-  el('remaining').textContent = 'ยังไม่ตอบ ' + (QUESTIONS.length - n) + ' ข้อ';
+  el('remaining').textContent = 'ยังไม่ตอบ ' + (state.order.length - n) + ' ข้อ';
 }
-function move(d) { if (expired()) return; state.index = Math.min(QUESTIONS.length - 1, Math.max(0, state.index + d)); save(); render(); window.scrollTo(0, 0); }
+function move(d) { if (expired()) return; state.index = Math.min(state.order.length - 1, Math.max(0, state.index + d)); save(); render(); window.scrollTo(0, 0); }
 function clearAnswer() { if (expired()) return; delete state.answers[questionId(state.index)]; save(); render(); }
 function submitExam(auto) {
   if (state.finished) return;
@@ -119,19 +152,22 @@ function submitExam(auto) {
 function showResult() {
   show('result'); el('timer').textContent = 'ส่งข้อสอบแล้ว';
   const n = Object.keys(state.answers).length;
-  el('totalAnswered').textContent = n + ' / ' + QUESTIONS.length;
-  el('totalBlank').textContent = (QUESTIONS.length - n) + ' ข้อ';
+  el('totalAnswered').textContent = n + ' / ' + state.order.length;
+  el('totalBlank').textContent = (state.order.length - n) + ' ข้อ';
   const used = Math.max(0, Math.min(DURATION, (state.ended || Date.now()) - state.started));
   el('usedTime').textContent = Math.floor(used / 60000) + ' นาที';
-  const verified = QUESTIONS.filter(q => Number.isInteger(q.answer) && q.answer >= 0 && q.answer < q.options.length).length;
-  const correct = QUESTIONS.reduce((count, q, i) => count + (Number.isInteger(q.answer) && q.answer >= 0 && q.answer < q.options.length && state.answers[i] === q.answer ? 1 : 0), 0);
-  const gradedAnswered = QUESTIONS.reduce((count, q, i) => count + (Number.isInteger(q.answer) && q.answer >= 0 && q.answer < q.options.length && state.answers[i] !== undefined ? 1 : 0), 0);
+  const validAnswer = q => Number.isInteger(q.answer) && q.answer >= 0 && q.answer < q.options.length;
+  const verified = state.order.filter(i => validAnswer(QUESTIONS[i])).length;
+  const correct = state.order.filter(i => validAnswer(QUESTIONS[i]) && state.answers[i] === QUESTIONS[i].answer).length;
+  const gradedAnswered = state.order.filter(i => validAnswer(QUESTIONS[i]) && state.answers[i] !== undefined).length;
+  const standard = isStandardExam(state.order);
   el('scoreCard').classList.toggle('hidden', verified === 0);
-  el('score').textContent = correct + ' / ' + verified;
+  el('score').textContent = standard ? (correct * 2) + ' / ' + (verified * 2) + ' คะแนน' : correct + ' / ' + verified + ' ข้อ';
   el('scoreDetail').textContent = 'ตอบผิด ' + (gradedAnswered - correct) + ' ข้อ · ไม่ตอบในข้อที่มีเฉลย ' + (verified - gradedAnswered) + ' ข้อ';
-  el('gradingNotice').textContent = verified ? 'ตอบถูก ' + correct + ' จาก ' + verified + ' ข้อที่มีเฉลยในชุดข้อสอบ (จากทั้งหมด ' + QUESTIONS.length + ' ข้อ) ข้อที่ยังไม่มีเฉลยไม่รวมในการคิดคะแนน' : 'ยังไม่มีชุดเฉลยที่ตรวจสอบแล้วจากเอกสาร จึงไม่สามารถคำนวณคะแนนถูกผิดหรืออธิบายข้อที่ผิดอย่างน่าเชื่อถือได้ ระบบแสดงคำตอบที่เลือกและหน้าต้นฉบับเพื่อทบทวน';
-  const subjects = new Map();
-  QUESTIONS.forEach((q, i) => {
+  el('gradingNotice').textContent = verified ? 'ตอบถูก ' + correct + ' จาก ' + verified + ' ข้อที่มีเฉลย (จากทั้งหมด ' + state.order.length + ' ข้อ) ข้อที่ยังไม่มีเฉลยไม่รวมในการคิดคะแนน' : 'ยังไม่มีเฉลยสำหรับคิดคะแนน';
+  const subjects = new Map(EXAM_SUBJECTS.map(({ name }) => [name, { total: 0, correct: 0, wrong: 0, blank: 0, pending: 0 }]));
+  state.order.forEach(i => {
+    const q = QUESTIONS[i];
     const summary = subjects.get(q.subject) || { total: 0, correct: 0, wrong: 0, blank: 0, pending: 0 };
     if (!Number.isInteger(q.answer) || q.answer < 0 || q.answer >= q.options.length) summary.pending++;
     else {
@@ -142,14 +178,31 @@ function showResult() {
     }
     subjects.set(q.subject, summary);
   });
+  el('passSummary').replaceChildren();
+  if (standard) {
+    const part1 = subjects.get(EXAM_SUBJECTS[0].name);
+    const part2 = EXAM_SUBJECTS.slice(1).map(s => subjects.get(s.name));
+    const professionalCorrect = part2.reduce((total, s) => total + s.correct, 0);
+    const enoughKeys = verified === state.order.length;
+    const pass1 = part1.correct >= 7, pass2 = professionalCorrect >= 54;
+    const status = document.createElement('strong'), p1 = document.createElement('p'), p2 = document.createElement('p');
+    status.textContent = !enoughKeys ? 'ยังสรุปผลผ่านไม่ได้ เพราะบางข้อยังไม่มีเฉลย' : pass1 && pass2 ? 'ผ่านทั้งสองส่วน' : 'ยังไม่ผ่านเกณฑ์';
+    p1.textContent = 'ส่วนที่ 1 จรรยาบรรณ: ' + (part1.correct * 2) + ' / 20 คะแนน · ต้องได้อย่างน้อย 14 คะแนน';
+    p2.textContent = 'ส่วนที่ 2 วิชาชีพและกฎหมาย: ' + (professionalCorrect * 2) + ' / 180 คะแนน · ต้องได้อย่างน้อย 108 คะแนน';
+    el('passSummary').append(status, p1, p2);
+    el('passSummary').className = 'pass-summary ' + (!enoughKeys ? '' : pass1 && pass2 ? 'pass-summary--pass' : 'pass-summary--fail');
+  } else {
+    el('passSummary').className = 'pass-summary';
+    el('passSummary').textContent = 'ผลสอบรอบเดิม แสดงคะแนนตามจำนวนข้อในรอบที่เริ่มไว้';
+  }
   el('subjectScores').replaceChildren();
   subjects.forEach((score, subject) => {
     const card = document.createElement('div'), title = document.createElement('strong');
     const value = document.createElement('div'), detail = document.createElement('div');
     card.className = 'subject-score'; title.textContent = subject; value.className = 'subject-score-value';
-    value.textContent = score.correct + ' / ' + score.total;
+    value.textContent = standard ? (score.correct * 2) + ' / ' + (score.total * 2) + ' คะแนน' : score.correct + ' / ' + score.total + ' ข้อ';
     detail.className = 'subject-score-detail';
-    detail.textContent = 'ผิด ' + score.wrong + ' ข้อ · ไม่ตอบ ' + score.blank + ' ข้อ' + (score.pending ? ' · รอเฉลย ' + score.pending + ' ข้อ' : '');
+    detail.textContent = 'ถูก ' + score.correct + ' ข้อ · ผิด ' + score.wrong + ' ข้อ · ไม่ตอบ ' + score.blank + ' ข้อ' + (score.pending ? ' · รอเฉลย ' + score.pending + ' ข้อ' : '');
     card.append(title, value, detail); el('subjectScores').append(card);
   });
   el('reviews').replaceChildren();
