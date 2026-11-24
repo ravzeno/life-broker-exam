@@ -1,4 +1,4 @@
-import { QUESTIONS } from "../questions.js";
+import { QUESTIONS } from "./data/questions.js";
 export const DURATION = 150 * 60 * 1000;
 export const BASE_KEY = "life-broker-exam-v1";
 export const SUBJECTS = [
@@ -8,12 +8,20 @@ export const SUBJECTS = [
   { name: "พระราชบัญญัติประกันชีวิต", count: 20 },
 ];
 export const LETTERS = ["ก", "ข", "ค", "ง"];
+/**
+ * สร้างสำเนาเกณฑ์สอบสำหรับบันทึกไว้กับแต่ละรอบ
+ */
 export const defaultRules = () => ({
   subjects: SUBJECTS.map((s) => ({ ...s })),
   ethicsCorrect: 7,
   professionalCorrect: 54,
 });
 const identity = (n) => Array.from({ length: n }, (_, i) => i);
+/**
+ * สุ่มลำดับตัวเลขด้วย Fisher–Yates
+ * @param {number} n จำนวนรายการที่ต้องการสุ่ม
+ * @returns {number[]} ดัชนีตั้งแต่ 0 ถึง n - 1 ที่สลับลำดับแล้ว
+ */
 export function shuffled(n) {
   const v = identity(n);
   for (let i = n - 1; i > 0; i--) {
@@ -22,6 +30,10 @@ export function shuffled(n) {
   }
   return v;
 }
+/**
+ * ตรวจว่าข้อความอ้างถึงตัวเลือกด้วยตัวอักษรหรือไม่ เพื่อไม่ให้การสลับตัวเลือกเปลี่ยนความหมาย
+ * @param {object} q ข้อมูลคำถามที่มี question, options และ explanation
+ */
 export function keepsOriginalLetters(q) {
   return [q.question, ...q.options, q.explanation || ""].some((t) =>
     /(?:ทั้ง|เฉพาะ|ถูก|ผิด|เว้น|ข้อ|เฉลย)\s*(?:ข้อ)?\s*[กขคง](?:\.|\s|และ|$)/.test(
@@ -29,9 +41,20 @@ export function keepsOriginalLetters(q) {
     ),
   );
 }
+/**
+ * เลือกตัวอักษรที่แสดงหน้าตัวเลือก
+ * @param {object} q ข้อมูลคำถาม
+ * @param {number} original ดัชนีตัวเลือกเดิม
+ * @param {number} position ตำแหน่งตัวเลือกหลังสุ่ม
+ */
 export function label(q, original, position) {
   return LETTERS[keepsOriginalLetters(q) ? original : position];
 }
+/**
+ * อ่านคำถามจาก snapshot ของรอบสอบก่อน แล้วจึงใช้คลังข้อสอบปัจจุบัน
+ * @param {object} attempt ข้อมูลรอบสอบ
+ * @param {number} i ดัชนีคำถามในคลัง
+ */
 export function question(attempt, i) {
   return attempt.bank?.[i] || QUESTIONS[i];
 }
@@ -40,6 +63,10 @@ const permutation = (a, n) =>
   a.length === n &&
   a.every((x) => Number.isInteger(x) && x >= 0 && x < n) &&
   new Set(a).size === n;
+/**
+ * สร้างรอบสอบใหม่ สุ่มตามสัดส่วนแต่ละหมวดและเก็บ snapshot ของคำถาม
+ * @param {string} id รหัสรอบสอบ
+ */
 export function newAttempt(id) {
   const selected = [];
   for (const subject of SUBJECTS) {
@@ -73,6 +100,11 @@ export function newAttempt(id) {
     ),
   };
 }
+/**
+ * ตรวจและปรับข้อมูลที่บันทึกไว้ให้ใช้ได้ รวมถึงรอบสอบรูปแบบเก่า
+ * @param {object|null} saved ข้อมูลรอบสอบที่อ่านจากที่เก็บ
+ * @returns {object|null} รอบสอบที่ปรับแล้ว หรือ null เมื่อไม่มีเวลาเริ่มที่ถูกต้อง
+ */
 export function normalize(saved) {
   if (!saved || !Number.isFinite(saved.started) || saved.started <= 0)
     return null;
@@ -125,6 +157,11 @@ export function normalize(saved) {
     }),
   };
 }
+/**
+ * เพิ่มรหัสและ snapshot ให้รอบสอบเก่าที่ยังไม่มีรหัส
+ * @param {object} a รอบสอบที่ผ่าน normalize แล้ว
+ * @param {string} id รหัสที่จะใช้เมื่อรอบเดิมไม่มีรหัส
+ */
 export function captureLegacy(a, id) {
   return a.id
     ? a
@@ -138,6 +175,11 @@ export function captureLegacy(a, id) {
           ),
       };
 }
+/**
+ * คำนวณคะแนนแยกหมวดและตรวจเกณฑ์ผ่านจากข้อมูลที่บันทึกในรอบสอบ
+ * @param {object} a รอบสอบพร้อมลำดับข้อและคำตอบ
+ * @returns {object} คะแนน สรุปแต่ละหมวด และผลผ่าน (null เมื่อเฉลยไม่ครบ)
+ */
 export function result(a) {
   const rules = a.rules || defaultRules(),
     standard =

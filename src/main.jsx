@@ -1,9 +1,22 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowLeft, ArrowRight, CircleX, ClipboardList, Clock3, Download, File, History, House, RotateCcw, Send } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  CircleX,
+  ClipboardList,
+  Clock3,
+  Download,
+  File,
+  History,
+  House,
+  RotateCcw,
+  Send,
+} from "lucide-react";
 import { createRoot } from "react-dom/client";
 import { Auth } from "./auth.jsx";
 import { reconcile } from "./reconcile.js";
-import "../history.js";
+import "./services/history.js";
 import {
   BASE_KEY,
   DURATION,
@@ -14,8 +27,8 @@ import {
   label,
   result,
 } from "./exam-model.js";
-import "./styles.css";
-import "./redesign.css";
+import "./styles/styles.css";
+import "./styles/redesign.css";
 const history = window.examHistory;
 const snapshotRecord = (a) => ({
   id: a.id,
@@ -24,26 +37,29 @@ const snapshotRecord = (a) => ({
   finished: a.finished,
   snapshot: JSON.parse(JSON.stringify(a)),
 });
+/**
+ * ควบคุมสถานะหน้าจอ รอบสอบปัจจุบัน และการซิงก์บัญชี
+ */
 function App() {
-  const [user, setUser] = useState(undefined),
-    [attempt, setAttempt] = useState(null),
-    [page, setPage] = useState("home"),
-    [now, setNow] = useState(Date.now()),
-    [loading, setLoading] = useState(true),
-    [storageWarning, setStorageWarning] = useState(false),
-    [syncWarning, setSyncWarning] = useState(""),
-    [failed, setFailed] = useState(false),
-    [records, setRecords] = useState([]),
-    [historyMessage, setHistoryMessage] = useState(""),
-    [filter, setFilter] = useState("all");
-  const ref = useRef(null),
-    historyOrigin = useRef("home"),
-    key = useRef(BASE_KEY),
-    owner = useRef(""),
-    needsReconcile = useRef(false),
-    discarding = useRef(false),
-    version = useRef(0),
-    epoch = useRef(0);
+  const [user, setUser] = useState(undefined);
+  const [attempt, setAttempt] = useState(null);
+  const [page, setPage] = useState("home");
+  const [now, setNow] = useState(Date.now());
+  const [loading, setLoading] = useState(true);
+  const [storageWarning, setStorageWarning] = useState(false);
+  const [syncWarning, setSyncWarning] = useState("");
+  const [failed, setFailed] = useState(false);
+  const [records, setRecords] = useState([]);
+  const [historyMessage, setHistoryMessage] = useState("");
+  const [filter, setFilter] = useState("all");
+  const ref = useRef(null);
+  const historyOrigin = useRef("home");
+  const key = useRef(BASE_KEY);
+  const owner = useRef("");
+  const needsReconcile = useRef(false);
+  const discarding = useRef(false);
+  const version = useRef(0);
+  const epoch = useRef(0);
   const setCurrent = (a) => {
     ref.current = a;
     setAttempt(a);
@@ -52,6 +68,10 @@ function App() {
     if (owner.current !== (u?.id || "")) setLoading(true);
     setUser(u);
   }, []);
+  /**
+   * บันทึก snapshot ลงประวัติและแสดงคำเตือนเมื่อบันทึกไม่สำเร็จ
+   * @param {object} a รอบสอบที่จะบันทึก
+   */
   async function saveHistory(a) {
     const saveVersion = ++version.current,
       account = owner.current;
@@ -78,6 +98,10 @@ function App() {
       );
     }
   }
+  /**
+   * อัปเดตรอบปัจจุบัน แล้วบันทึกลงเครื่องและประวัติ
+   * @param {object} a สถานะรอบสอบใหม่
+   */
   function persist(a) {
     if ((window.examAuth.getUser()?.id || "") !== owner.current) return;
     setCurrent(a);
@@ -89,6 +113,10 @@ function App() {
     }
     saveHistory(a);
   }
+  /**
+   * จำว่าผู้ใช้เลือกกลับหน้าแรกของรอบใดใน session นี้
+   * @param {string|null} attemptId รหัสรอบสอบ หรือ null เพื่อล้างค่า
+   */
   function setHomePreference(attemptId) {
     try {
       if (attemptId) sessionStorage.setItem(key.current + "-home", attemptId);
@@ -97,18 +125,31 @@ function App() {
       // Navigation still works when session storage is unavailable.
     }
   }
+  /**
+   * เลือกหน้าแรก หน้าสอบ หรือหน้าผลสอบตามสถานะรอบปัจจุบัน
+   * @param {object|null} a รอบสอบปัจจุบัน
+   * @param {boolean} [restoreHome=false] คืนค่าการเลือกหน้าแรกจาก session
+   */
   function showCurrent(a, restoreHome = false) {
     setFilter("all");
     let homeWasSelected = false;
     if (restoreHome && a) {
       try {
-        homeWasSelected = sessionStorage.getItem(key.current + "-home") === a.id;
+        homeWasSelected =
+          sessionStorage.getItem(key.current + "-home") === a.id;
       } catch (_) {}
     } else {
       setHomePreference(null);
     }
     setPage(!a || homeWasSelected ? "home" : a.finished ? "result" : "exam");
   }
+  /**
+   * ตรวจความขัดแย้งระหว่างรอบในเครื่องกับคลาวด์ของบัญชีปัจจุบัน
+   * @param {string} userId รหัสบัญชี
+   * @param {object|null} current รอบปัจจุบันในเครื่อง
+   * @param {number} token รุ่นของการโหลดบัญชี ใช้ตรวจว่าบัญชีไม่ได้เปลี่ยน
+   * @param {Function} onSelected รับรอบที่ผู้ใช้เลือก
+   */
   async function reconcileAccount(userId, current, token, onSelected) {
     return reconcile({
       history,
@@ -206,6 +247,9 @@ function App() {
     }
     return !a || a.finished;
   };
+  /**
+   * สร้างและเริ่มรอบสอบใหม่
+   */
   function start() {
     try {
       const a = newAttempt(history.makeId());
@@ -218,6 +262,9 @@ function App() {
       alert(e.message);
     }
   }
+  /**
+   * ยืนยันก่อนเริ่มรอบใหม่ และป้องกันการเริ่มเมื่อบันทึกประวัติไม่สำเร็จ
+   */
   function restart() {
     if (failed) {
       alert("ยังบันทึกประวัติไม่สำเร็จ โปรดลองบันทึกอีกครั้งก่อนเริ่มสอบใหม่");
@@ -225,11 +272,21 @@ function App() {
     }
     if (confirm("เริ่มสอบใหม่? ผลสอบรอบเดิมจะอยู่ในประวัติการสอบ")) start();
   }
+  /**
+   * ยืนยันและลบรอบที่กำลังทำ ก่อนกลับหน้าแรก
+   */
   async function leaveExam() {
     if (expired()) return;
-    if (!confirm("ยกเลิกข้อสอบรอบนี้? คำตอบและประวัติของรอบนี้จะถูกลบ และไม่สามารถนำกลับมาได้")) return;
+    if (
+      !confirm(
+        "ยกเลิกข้อสอบรอบนี้? คำตอบและประวัติของรอบนี้จะถูกลบ และไม่สามารถนำกลับมาได้",
+      )
+    )
+      return;
     if (expired()) return;
-    const current = ref.current, account = owner.current, token = epoch.current;
+    const current = ref.current,
+      account = owner.current,
+      token = epoch.current;
     discarding.current = true;
     setLoading(true);
     try {
@@ -246,31 +303,47 @@ function App() {
       window.scrollTo(0, 0);
     } catch (_) {
       if (epoch.current === token && owner.current === account) {
-        alert("ยกเลิกข้อสอบไม่สำเร็จ โปรดตรวจสอบการเชื่อมต่อหรือพื้นที่จัดเก็บ แล้วลองอีกครั้ง");
+        alert(
+          "ยกเลิกข้อสอบไม่สำเร็จ โปรดตรวจสอบการเชื่อมต่อหรือพื้นที่จัดเก็บ แล้วลองอีกครั้ง",
+        );
       }
     } finally {
       discarding.current = false;
       if (epoch.current === token) setLoading(false);
     }
   }
+  /**
+   * กลับไปทำรอบสอบที่ยังไม่หมดเวลา
+   */
   function resumeExam() {
     if (expired()) return;
     setHomePreference(null);
     setPage("exam");
     window.scrollTo(0, 0);
   }
+  /**
+   * ย้ายไปยังตำแหน่งข้อสอบที่ระบุภายในขอบเขตของรอบ
+   * @param {number} i ตำแหน่งข้อในลำดับสอบ เริ่มจาก 0
+   */
   function move(i) {
     if (expired()) return;
     const a = ref.current;
     persist({ ...a, index: Math.max(0, Math.min(a.order.length - 1, i)) });
     window.scrollTo(0, 0);
   }
+  /**
+   * บันทึกตัวเลือกของข้อปัจจุบัน
+   * @param {number} i ดัชนีตัวเลือกเดิมของคำถาม
+   */
   function answer(i) {
     if (expired()) return;
     const a = ref.current,
       id = a.order[a.index];
     persist({ ...a, answers: { ...a.answers, [id]: i } });
   }
+  /**
+   * ลบคำตอบของข้อปัจจุบัน
+   */
   function clearAnswer() {
     if (expired()) return;
     const a = ref.current,
@@ -278,6 +351,9 @@ function App() {
     delete answers[a.order[a.index]];
     persist({ ...a, answers });
   }
+  /**
+   * ยืนยันและส่งข้อสอบพร้อมบันทึกเวลาที่ส่ง
+   */
   function submit() {
     if (expired()) return;
     const a = ref.current,
@@ -295,6 +371,9 @@ function App() {
     showCurrent(done);
     window.scrollTo(0, 0);
   }
+  /**
+   * เปิดหน้าประวัติและโหลดรายการของบัญชีหรือ Guest ปัจจุบัน
+   */
   async function showHistory() {
     const account = owner.current;
     historyOrigin.current = page;
@@ -320,6 +399,10 @@ function App() {
       );
     }
   }
+  /**
+   * เปิดรอบสอบจากประวัติและบันทึกเป็นรอบปัจจุบัน
+   * @param {object} record ระเบียนประวัติที่มี snapshot
+   */
   function openAttempt(record) {
     if (
       ref.current &&
@@ -339,6 +422,9 @@ function App() {
       setHistoryMessage("เปิดผลสอบไม่สำเร็จ โปรดตรวจสอบพื้นที่จัดเก็บ");
     }
   }
+  /**
+   * คัดลอกประวัติ Guest ไปยังบัญชีหลังผู้ใช้ยืนยัน
+   */
   async function copyGuest() {
     if (!confirm("คัดลอกประวัติ Guest จากเบราว์เซอร์นี้ไปยังบัญชีของคุณ?"))
       return;
@@ -350,6 +436,9 @@ function App() {
       setHistoryMessage("คัดลอกไม่สำเร็จ ประวัติ Guest ยังคงอยู่ในเครื่อง");
     }
   }
+  /**
+   * ตรวจความขัดแย้งและลองซิงก์หรือบันทึกข้อมูลอีกครั้ง
+   */
   async function retry() {
     const token = epoch.current;
     setLoading(true);
@@ -385,16 +474,48 @@ function App() {
     : [Math.floor(sec / 3600), Math.floor((sec % 3600) / 60), sec % 60]
         .map((n) => String(n).padStart(2, "0"))
         .join(":");
+  const showHomeAccountControls =
+    (!loading || user === undefined) &&
+    page === "home" &&
+    (!attempt || attempt.finished);
   return (
     <div className="wrap app-shell">
-      <header className={"top app-header" + (page === "exam" && attempt && !attempt.finished ? " app-header--exam" : "") + (!loading && page === "home" && (!attempt || attempt.finished) ? " app-header--account" : "")}>
+      <header
+        className={
+          "top app-header" +
+          (page === "exam" && attempt && !attempt.finished
+            ? " app-header--exam"
+            : "") +
+          (showHomeAccountControls ? " app-header--account" : "")
+        }
+      >
         <div className="brand-lockup">
-          <span className="brand-mark" aria-hidden="true">L<span>B</span></span>
-          <div className="brand-copy"><div className="brand">LIFE BROKER EXAM</div>
-          <div className="muted small">ห้องฝึกสอบนายหน้าประกันชีวิต</div></div>
+          <span className="brand-mark" aria-hidden="true">
+            L<span>B</span>
+          </span>
+          <div className="brand-copy">
+            <div className="brand">LIFE BROKER EXAM</div>
+            <div className="muted small">ห้องฝึกสอบนายหน้าประกันชีวิต</div>
+          </div>
         </div>
-        <Auth onUser={onUser} showAccountControls={!loading && page === "home" && (!attempt || attempt.finished)} />
-        {page === "exam" && attempt && !attempt.finished && <div className="exam-header-actions"><button className="danger exam-cancel" onClick={leaveExam}><CircleX size={17} aria-hidden="true" /> ยกเลิกข้อสอบ</button><div className="header-timer"><span>เวลาที่เหลือ</span><div className="pill" aria-label={"เวลาสอบ " + timer}><Clock3 size={17} aria-hidden="true" />{timer}</div></div></div>}
+        <Auth
+          onUser={onUser}
+          showAccountControls={showHomeAccountControls}
+        />
+        {page === "exam" && attempt && !attempt.finished && (
+          <div className="exam-header-actions">
+            <button className="danger exam-cancel" onClick={leaveExam}>
+              <CircleX size={17} aria-hidden="true" /> ยกเลิกข้อสอบ
+            </button>
+            <div className="header-timer">
+              <span>เวลาที่เหลือ</span>
+              <div className="pill" aria-label={"เวลาสอบ " + timer}>
+                <Clock3 size={17} aria-hidden="true" />
+                {timer}
+              </div>
+            </div>
+          </div>
+        )}
       </header>
       {syncWarning && (
         <div className="notice storage-warning" role="alert">
@@ -410,7 +531,7 @@ function App() {
           คำตอบและผลสอบอาจสูญหาย
         </div>
       )}
-      {loading ? (
+      {loading && user !== undefined ? (
         <p role="status">กำลังตรวจสอบข้อมูล…</p>
       ) : (
         <>
@@ -418,30 +539,98 @@ function App() {
             <main className="home-page">
               <div className="home-hero">
                 <section className="home-intro">
-                  <h1>เตรียมตัวให้พร้อม<br />ก่อนวันสอบจริง</h1>
+                  <h1>
+                    เตรียมตัวให้พร้อม
+                    <br />
+                    ก่อนวันสอบจริง
+                  </h1>
                   <div className="home-actions">
-                    <button className="primary" onClick={attempt && !attempt.finished ? resumeExam : attempt ? restart : start}>{attempt && !attempt.finished ? "ทำข้อสอบต่อ" : "เริ่มทำข้อสอบ"} <ArrowRight size={18} aria-hidden="true" /></button>
-                    <button className="secondary" onClick={showHistory}><History size={18} aria-hidden="true" />ดูประวัติการสอบ</button>
+                    <button
+                      className="primary"
+                      disabled={loading}
+                      onClick={
+                        attempt && !attempt.finished
+                          ? resumeExam
+                          : attempt
+                            ? restart
+                            : start
+                      }
+                    >
+                      {attempt && !attempt.finished
+                        ? "ทำข้อสอบต่อ"
+                        : "เริ่มทำข้อสอบ"}{" "}
+                      <ArrowRight size={18} aria-hidden="true" />
+                    </button>
+                    <button
+                      className="secondary"
+                      disabled={loading}
+                      onClick={showHistory}
+                    >
+                      <History size={18} aria-hidden="true" />
+                      ดูประวัติการสอบ
+                    </button>
                   </div>
-                  <p className="home-save-note muted small">{attempt && !attempt.finished ? `เวลาสอบยังนับต่อ เหลือ ${timer} ชั่วโมง` : "บันทึกคำตอบในเบราว์เซอร์เครื่องนี้ เพื่อกลับมาทำต่อก่อนหมดเวลา"}</p>
+                  <p className="home-save-note muted small">
+                    {attempt && !attempt.finished
+                      ? `เวลาสอบยังนับต่อ เหลือ ${timer} ชั่วโมง`
+                      : "บันทึกคำตอบในเบราว์เซอร์เครื่องนี้ เพื่อกลับมาทำต่อก่อนหมดเวลา"}
+                  </p>
                 </section>
                 <aside className="home-side" aria-label="รายละเอียดข้อสอบจำลอง">
-                  <div className="overview-heading"><div><div className="subject">ภาพรวมการสอบ</div><h2>ข้อสอบจำลอง</h2></div><span>100 ข้อ</span></div>
+                  <div className="overview-heading">
+                    <div>
+                      <div className="subject">ภาพรวมการสอบ</div>
+                      <h2>ข้อสอบจำลอง</h2>
+                    </div>
+                    <span>100 ข้อ</span>
+                  </div>
                   <div className="stats">
-                    <div className="stat">จำนวน<strong>100 <small>ข้อ</small></strong></div>
-                    <div className="stat">เวลาทำ<strong>150 <small>นาที</small></strong></div>
-                    <div className="stat">ทั้งหมด<strong>4 <small>หมวด</small></strong></div>
+                    <div className="stat">
+                      จำนวน
+                      <strong>
+                        100 <small>ข้อ</small>
+                      </strong>
+                    </div>
+                    <div className="stat">
+                      เวลาทำ
+                      <strong>
+                        150 <small>นาที</small>
+                      </strong>
+                    </div>
+                    <div className="stat">
+                      ทั้งหมด
+                      <strong>
+                        4 <small>หมวด</small>
+                      </strong>
+                    </div>
                   </div>
                   <div className="overview-subjects">
-                    <div className="overview-row"><span>จรรยาบรรณและศีลธรรม</span><strong>10 ข้อ</strong></div>
-                    <div className="overview-row"><span>ความรู้ประกันชีวิต</span><strong>50 ข้อ</strong></div>
-                    <div className="overview-row"><span>กฎหมายแพ่งและพาณิชย์</span><strong>20 ข้อ</strong></div>
-                    <div className="overview-row"><span>พ.ร.บ. ประกันชีวิต</span><strong>20 ข้อ</strong></div>
+                    <div className="overview-row">
+                      <span>จรรยาบรรณและศีลธรรม</span>
+                      <strong>10 ข้อ</strong>
+                    </div>
+                    <div className="overview-row">
+                      <span>ความรู้ประกันชีวิต</span>
+                      <strong>50 ข้อ</strong>
+                    </div>
+                    <div className="overview-row">
+                      <span>กฎหมายแพ่งและพาณิชย์</span>
+                      <strong>20 ข้อ</strong>
+                    </div>
+                    <div className="overview-row">
+                      <span>พ.ร.บ. ประกันชีวิต</span>
+                      <strong>20 ข้อ</strong>
+                    </div>
                   </div>
                 </aside>
               </div>
               <StudyDocument />
-              <div className="notice">ข้อสอบและเฉลยอ้างอิงเอกสารปี 2567 บางข้อมีความกำกวมหรืออนุมานจากเนื้อหาในเอกสาร เกณฑ์จำลอง: จรรยาบรรณอย่างน้อย 14/20 และวิชาชีพกับกฎหมายรวมกันอย่างน้อย 108/180 คะแนน โปรดตรวจสอบกฎหมายและเกณฑ์สอบปัจจุบันกับ คปภ.</div>
+              <div className="notice">
+                ข้อสอบและเฉลยอ้างอิงเอกสารปี 2567
+                บางข้อมีความกำกวมหรืออนุมานจากเนื้อหาในเอกสาร เกณฑ์จำลอง:
+                จรรยาบรรณอย่างน้อย 14/20 และวิชาชีพกับกฎหมายรวมกันอย่างน้อย
+                108/180 คะแนน โปรดตรวจสอบกฎหมายและเกณฑ์สอบปัจจุบันกับ คปภ.
+              </div>
             </main>
           )}
           {page === "exam" && attempt && (
@@ -458,18 +647,28 @@ function App() {
               a={attempt}
               onRestart={restart}
               onHistory={showHistory}
-              onHome={() => { setHomePreference(attempt.id); setPage("home"); window.scrollTo(0, 0); }}
+              onHome={() => {
+                setHomePreference(attempt.id);
+                setPage("home");
+                window.scrollTo(0, 0);
+              }}
               filter={filter}
               setFilter={setFilter}
             />
           )}
           {page === "history" && (
             <main className="panel history-page">
-              <div className="history-header"><h1>ประวัติการสอบ</h1></div>
+              <div className="history-header">
+                <h1>ประวัติการสอบ</h1>
+              </div>
               <div className="actions">
                 <button
                   className="secondary"
-                  onClick={() => historyOrigin.current === "home" ? setPage("home") : showCurrent(ref.current)}
+                  onClick={() =>
+                    historyOrigin.current === "home"
+                      ? setPage("home")
+                      : showCurrent(ref.current)
+                  }
                 >
                   กลับ
                 </button>
@@ -515,12 +714,42 @@ function App() {
     </div>
   );
 }
+/**
+ * แสดงลิงก์ดาวน์โหลดเอกสารประกอบการเรียน
+ */
 function StudyDocument() {
-  return <section className="study-document" aria-label="เอกสารประกอบการติวสอบ">
-    <div className="document-copy"><span className="document-type" aria-hidden="true"><File size={29} strokeWidth={1.6} /><b>PDF</b></span><div><strong>เอกสารประกอบการติวสอบ</strong><span>ฉบับปี 2567 · PDF ประมาณ 9 MB</span></div></div>
-    <a className="secondary" href={`${import.meta.env.BASE_URL}life-broker-study-2567.pdf`} download="เอกสารประกอบการบรรยายติวสอบนายหน้าประกันชีวิต_2567.pdf"><Download size={18} aria-hidden="true" />ดาวน์โหลดเอกสาร</a>
-  </section>;
+  return (
+    <section className="study-document" aria-label="เอกสารประกอบการติวสอบ">
+      <div className="document-copy">
+        <span className="document-type" aria-hidden="true">
+          <File size={29} strokeWidth={1.6} />
+          <b>PDF</b>
+        </span>
+        <div>
+          <strong>เอกสารประกอบการติวสอบ</strong>
+          <span>ฉบับปี 2567 · PDF ประมาณ 9 MB</span>
+        </div>
+      </div>
+      <a
+        className="secondary"
+        href={`${import.meta.env.BASE_URL}life-broker-study-2567.pdf`}
+        download="เอกสารประกอบการบรรยายติวสอบนายหน้าประกันชีวิต_2567.pdf"
+      >
+        <Download size={18} aria-hidden="true" />
+        ดาวน์โหลดเอกสาร
+      </a>
+    </section>
+  );
 }
+/**
+ * แสดงคำถามและปุ่มควบคุมระหว่างสอบ
+ * @param {object} props คุณสมบัติของคอมโพเนนต์
+ * @param {object} props.a รอบสอบปัจจุบัน
+ * @param {Function} props.onAnswer รับดัชนีตัวเลือกที่ผู้ใช้เลือก
+ * @param {Function} props.onMove รับตำแหน่งข้อที่ต้องการเปิด
+ * @param {Function} props.onClear ล้างคำตอบข้อปัจจุบัน
+ * @param {Function} props.onSubmit ส่งข้อสอบ
+ */
 function Exam({ a, onAnswer, onMove, onClear, onSubmit }) {
   const id = a.order[a.index],
     q = question(a, id),
@@ -528,83 +757,107 @@ function Exam({ a, onAnswer, onMove, onClear, onSubmit }) {
   return (
     <main className="exam-page">
       <div className="grid">
-      <section className="panel question-panel">
-        <div className="subject exam-kicker">
-          {q.subject} • หน้า {q.page} ของ PDF
-        </div>
-        <div className="top" style={{ marginTop: 10 }}>
-          <strong>
-            ข้อ {a.index + 1} / {a.order.length}
-          </strong>
-          <span className="exam-progress-meta"><span className="muted small">ตอบแล้ว {n} ข้อ</span><a className="answer-sheet-link" href="#answer-sheet">ดูกระดาษคำตอบ <ArrowDown size={14} aria-hidden="true" /></a></span>
-        </div>
-        <div className="progress">
-          <div style={{ width: (n / a.order.length) * 100 + "%" }} />
-        </div>
-        <div className="question-label">คำถาม</div>
-        <div className="question">{q.question}</div>
-        <div>
-          {a.optionOrders[id].map((j, pos) => (
-            <button
-              key={j}
-              className={"option" + (a.answers[id] === j ? " selected" : "")}
-              aria-pressed={a.answers[id] === j}
-              onClick={() => onAnswer(j)}
-            >
-              <b>{label(q, j, pos)}</b>
-              <span>{q.options[j]}</span>
+        <section className="panel question-panel">
+          <div className="subject exam-kicker">
+            {q.subject} • หน้า {q.page} ของ PDF
+          </div>
+          <div className="top" style={{ marginTop: 10 }}>
+            <strong>
+              ข้อ {a.index + 1} / {a.order.length}
+            </strong>
+            <span className="exam-progress-meta">
+              <span className="muted small">ตอบแล้ว {n} ข้อ</span>
+              <a className="answer-sheet-link" href="#answer-sheet">
+                ดูกระดาษคำตอบ <ArrowDown size={14} aria-hidden="true" />
+              </a>
+            </span>
+          </div>
+          <div className="progress">
+            <div style={{ width: (n / a.order.length) * 100 + "%" }} />
+          </div>
+          <div className="question-label">คำถาม</div>
+          <div className="question">{q.question}</div>
+          <div>
+            {a.optionOrders[id].map((j, pos) => (
+              <button
+                key={j}
+                className={"option" + (a.answers[id] === j ? " selected" : "")}
+                aria-pressed={a.answers[id] === j}
+                onClick={() => onAnswer(j)}
+              >
+                <b>{label(q, j, pos)}</b>
+                <span>{q.options[j]}</span>
+              </button>
+            ))}
+          </div>
+          <div className="actions exam-navigation">
+            <button className="secondary" onClick={() => onMove(a.index - 1)}>
+              <ArrowLeft size={18} aria-hidden="true" /> ก่อนหน้า
             </button>
-          ))}
-        </div>
-        <div className="actions exam-navigation">
-          <button className="secondary" onClick={() => onMove(a.index - 1)}>
-            <ArrowLeft size={18} aria-hidden="true" /> ก่อนหน้า
-          </button>
-          <button className="secondary" onClick={() => onMove(a.index + 1)}>
-            ถัดไป <ArrowRight size={18} aria-hidden="true" />
-          </button>
-        </div>
-        <div className="actions exam-tools">
-          <button className="secondary" onClick={onClear}>
-            <RotateCcw size={17} aria-hidden="true" /> ล้างคำตอบข้อนี้
-          </button>
-          <button className="danger" onClick={onSubmit}>
-            <Send size={17} aria-hidden="true" /> ส่งข้อสอบ
-          </button>
-        </div>
-      </section>
-      <aside id="answer-sheet" className="panel exam-sidebar" tabIndex={-1}>
-        <div className="sidebar-heading"><h3><ClipboardList size={19} aria-hidden="true" /> กระดาษคำตอบ</h3><span>{n} / {a.order.length}</span></div>
-        <p className="muted small sidebar-legend">
-          แตะหมายเลขเพื่อไปยังข้อที่ต้องการ · สีเข้มคือข้อที่ตอบแล้ว
-        </p>
-        <div className="numbers">
-          {a.order.map((i, j) => (
-            <button
-              key={i}
-              className={
-                "num" +
-                (a.answers[i] !== undefined ? " answered" : "") +
-                (j === a.index ? " current" : "")
-              }
-              aria-label={
-                "ข้อ " +
-                (j + 1) +
-                (a.answers[i] !== undefined ? " ตอบแล้ว" : " ยังไม่ตอบ")
-              }
-              aria-current={j === a.index ? "step" : undefined}
-              onClick={() => onMove(j)}
-            >
-              {j + 1}
+            <button className="secondary" onClick={() => onMove(a.index + 1)}>
+              ถัดไป <ArrowRight size={18} aria-hidden="true" />
             </button>
-          ))}
-        </div>
-        <p className="muted small sidebar-unanswered">ยังไม่ตอบ {a.order.length - n} ข้อ</p>
-      </aside>
+          </div>
+          <div className="actions exam-tools">
+            <button className="secondary" onClick={onClear}>
+              <RotateCcw size={17} aria-hidden="true" /> ล้างคำตอบข้อนี้
+            </button>
+            <button className="danger" onClick={onSubmit}>
+              <Send size={17} aria-hidden="true" /> ส่งข้อสอบ
+            </button>
+          </div>
+        </section>
+        <aside id="answer-sheet" className="panel exam-sidebar" tabIndex={-1}>
+          <div className="sidebar-heading">
+            <h3>
+              <ClipboardList size={19} aria-hidden="true" /> กระดาษคำตอบ
+            </h3>
+            <span>
+              {n} / {a.order.length}
+            </span>
+          </div>
+          <p className="muted small sidebar-legend">
+            แตะหมายเลขเพื่อไปยังข้อที่ต้องการ · สีเข้มคือข้อที่ตอบแล้ว
+          </p>
+          <div className="numbers">
+            {a.order.map((i, j) => (
+              <button
+                key={i}
+                className={
+                  "num" +
+                  (a.answers[i] !== undefined ? " answered" : "") +
+                  (j === a.index ? " current" : "")
+                }
+                aria-label={
+                  "ข้อ " +
+                  (j + 1) +
+                  (a.answers[i] !== undefined ? " ตอบแล้ว" : " ยังไม่ตอบ")
+                }
+                aria-current={j === a.index ? "step" : undefined}
+                onClick={() => onMove(j)}
+              >
+                {j + 1}
+              </button>
+            ))}
+          </div>
+          <p className="muted small sidebar-unanswered">
+            ยังไม่ตอบ {a.order.length - n} ข้อ
+          </p>
+        </aside>
       </div>
     </main>
   );
 }
+/**
+ * แสดงคะแนนและรายการตรวจคำตอบหลังส่งข้อสอบ
+ * @param {object} props คุณสมบัติของคอมโพเนนต์
+ * @param {object} props.a รอบสอบที่ส่งแล้ว
+ * @param {Function} props.onRestart เริ่มรอบใหม่
+ * @param {Function} props.onHistory เปิดประวัติ
+ * @param {Function} props.onHome กลับหน้าแรก
+ * @param {string} props.filter ตัวกรองรายการคำตอบ
+ * @param {Function} props.setFilter เปลี่ยนตัวกรอง
+ */
 function Result({ a, onRestart, onHistory, onHome, filter, setFilter }) {
   const r = result(a),
     n = Object.keys(a.answers).length,
@@ -630,17 +883,23 @@ function Result({ a, onRestart, onHistory, onHome, filter, setFilter }) {
     .filter((v) => filter === "all" || v.status === filter);
   return (
     <main className="panel result-page">
-      <div className="result-header"><div><div className="subject">ผลการทำข้อสอบ</div>
-      <h1>ส่งข้อสอบเรียบร้อย</h1></div><div className="result-actions">
-      <button className="primary" onClick={onRestart}>
-        <RotateCcw size={18} aria-hidden="true" /> เริ่มสอบใหม่
-      </button>{" "}
-      <button className="secondary" onClick={onHistory}>
-        <History size={18} aria-hidden="true" /> ประวัติการสอบ
-      </button>
-      <button className="secondary" onClick={onHome}>
-        <House size={18} aria-hidden="true" /> กลับหน้าแรก
-      </button></div></div>
+      <div className="result-header">
+        <div>
+          <div className="subject">ผลการทำข้อสอบ</div>
+          <h1>ส่งข้อสอบเรียบร้อย</h1>
+        </div>
+        <div className="result-actions">
+          <button className="primary" onClick={onRestart}>
+            <RotateCcw size={18} aria-hidden="true" /> เริ่มสอบใหม่
+          </button>{" "}
+          <button className="secondary" onClick={onHistory}>
+            <History size={18} aria-hidden="true" /> ประวัติการสอบ
+          </button>
+          <button className="secondary" onClick={onHome}>
+            <House size={18} aria-hidden="true" /> กลับหน้าแรก
+          </button>
+        </div>
+      </div>
       {r.verified > 0 && (
         <div className="score-card" aria-label="คะแนนสอบ">
           <div>

@@ -13,3 +13,15 @@
 8. ใส่ Project URL และ publishable/anon key ใน `public/supabase-config.js` ก่อนเผยแพร่ ไฟล์นี้เป็นข้อมูลสาธารณะ ตรวจสอบ URL เว็บให้ตรงกับ redirect ที่อนุญาต
 
 เมื่อใช้ Vercel ให้เพิ่ม URL จริงของเว็บลงใน Supabase Auth ทั้ง Site URL และ Redirect URLs สำหรับลิงก์ยืนยันอีเมล กู้รหัสผ่าน และ Google OAuth หากใช้ Preview deployments ให้ระบุ redirect ที่อนุญาตอย่างจำกัดและเหมาะสม หลีกเลี่ยง wildcard ที่กว้างเกินไป
+
+## เทมเพลตอีเมลตั้งรหัสผ่านใหม่
+
+ใน Supabase Dashboard ไปที่ Authentication → Email Templates → Reset Password ตั้งหัวข้อเป็น `ตั้งรหัสผ่านใหม่ | Life Broker Exam` แล้วคัดลอกเนื้อหาจาก `supabase/templates/recovery.html` ไปใส่ใน Message body และบันทึก ปุ่มใช้ `{{ .ConfirmationURL }}` สำหรับลิงก์กู้รหัสผ่านของ Supabase หลังตั้งค่า SMTP ให้ทดลองส่งและกดลิงก์จากเบราว์เซอร์และอุปกรณ์เดียวกับที่ขอรีเซ็ต
+
+## เทมเพลตอีเมลยืนยันการสมัคร
+
+ใน Supabase Dashboard ไปที่ Authentication → Email Templates → Confirm Signup ตั้งหัวข้อเป็น `ยืนยันอีเมลเพื่อสมัครสมาชิก | Life Broker Exam` แล้วคัดลอกเนื้อหาจาก `supabase/templates/confirmation.html` ไปใส่ใน Message body และบันทึก ปุ่มใช้ `{{ .ConfirmationURL }}` สำหรับลิงก์ยืนยันอีเมล ต้องเปิด Confirm Email ในการตั้งค่า Email provider และตั้งค่า SMTP ก่อนทดสอบสมัครและยืนยันในเบราว์เซอร์และอุปกรณ์เดียวกัน
+
+## เทมเพลตแจ้งเตือนเปลี่ยนรหัสผ่าน
+
+ใน Supabase Dashboard ไปที่ Authentication → Email Templates → Security เปิด Password changed ตั้งหัวข้อเป็น `เปลี่ยนรหัสผ่านสำเร็จ | Life Broker Exam` แล้วคัดลอกเนื้อหาจาก `supabase/templates/password-changed.html` ไปใส่ใน Message body และบันทึก เทมเพลตนี้เป็นการแจ้งหลังเปลี่ยนรหัสผ่านสำเร็จ ไม่ใช่อีเมลที่ส่งลิงก์ตั้งรหัสผ่านใหม่

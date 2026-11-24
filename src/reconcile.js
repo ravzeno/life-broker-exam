@@ -1,30 +1,70 @@
-const snapshotRecord = a => ({id:a.id,started:a.started,ended:a.ended||null,finished:a.finished,snapshot:JSON.parse(JSON.stringify(a))});
-const canonical = v => Array.isArray(v) ? v.map(canonical) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map(k=>[k,canonical(v[k])])) : v;
-const equal = (a,b) => JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
+const snapshotRecord = (a) => ({
+  id: a.id,
+  started: a.started,
+  ended: a.ended || null,
+  finished: a.finished,
+  snapshot: JSON.parse(JSON.stringify(a)),
+});
+const canonical = (v) =>
+  Array.isArray(v)
+    ? v.map(canonical)
+    : v && typeof v === "object"
+      ? Object.fromEntries(
+          Object.keys(v)
+            .sort()
+            .map((k) => [k, canonical(v[k])]),
+        )
+      : v;
+const equal = (a, b) =>
+  JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
 
 // onSelected runs immediately after the replacement is saved, so a later
 // failure does not leave the UI holding the old version of the attempt.
-export async function reconcile({history, current, isCurrent, confirmCloud, saveLocal, normalize, onSelected}) {
-  const ensureCurrent = () => { if (!isCurrent()) throw Error('account changed'); };
+/**
+ * ตรวจข้อมูลในเครื่องเทียบกับคลาวด์ก่อนซิงก์ และให้ผู้ใช้เลือกเมื่อข้อมูลขัดแย้ง
+ * @param {object} options ตัวเลือกและ callback สำหรับจัดการข้อมูล
+ * @param {object} options.history บริการประวัติสอบ
+ * @param {object|null} options.current รอบสอบปัจจุบันในเครื่อง
+ * @param {Function} options.isCurrent ตรวจว่าบัญชีและการทำงานชุดนี้ยังเป็นชุดปัจจุบัน
+ * @param {Function} options.confirmCloud ขอให้ผู้ใช้เลือกข้อมูลคลาวด์เมื่อข้อมูลต่างกัน
+ * @param {Function} options.saveLocal บันทึก snapshot ที่เลือกลงเครื่อง
+ * @param {Function} options.normalize ตรวจและปรับ snapshot ที่อ่านมา
+ * @param {Function} options.onSelected แจ้งรอบสอบที่เลือกทันทีหลังบันทึก
+ * @returns {Promise<object|null>} รอบสอบที่เลือกหลังซิงก์
+ */
+export async function reconcile({
+  history,
+  current,
+  isCurrent,
+  confirmCloud,
+  saveLocal,
+  normalize,
+  onSelected,
+}) {
+  const ensureCurrent = () => {
+    if (!isCurrent()) throw Error("account changed");
+  };
   ensureCurrent();
-  const pending = history.pendingAttempts(), candidates = [...pending];
-  if (current?.id && !pending.some(x=>x.id===current.id)) candidates.push(snapshotRecord(current));
+  const pending = history.pendingAttempts(),
+    candidates = [...pending];
+  if (current?.id && !pending.some((x) => x.id === current.id))
+    candidates.push(snapshotRecord(current));
   let selected = current;
   for (const item of candidates) {
-    const remote = await history.getAttempt(item.id, {cloudOnly:true});
+    const remote = await history.getAttempt(item.id, { cloudOnly: true });
     ensureCurrent();
-    if (remote && !equal(remote.snapshot,item.snapshot)) {
+    if (remote && !equal(remote.snapshot, item.snapshot)) {
       if (confirmCloud()) {
         if (selected?.id === item.id) {
           const replacement = normalize(remote.snapshot);
-          if (!replacement) throw Error('invalid cloud attempt');
+          if (!replacement) throw Error("invalid cloud attempt");
           saveLocal(remote.snapshot);
           selected = replacement;
           onSelected(selected);
         }
         history.discardPending(item.id);
-      } else if (!pending.some(x=>x.id===item.id)) {
-        await history.saveAttempt(item,{queueOnly:true});
+      } else if (!pending.some((x) => x.id === item.id)) {
+        await history.saveAttempt(item, { queueOnly: true });
         ensureCurrent();
       }
     }
