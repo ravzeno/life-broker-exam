@@ -4,18 +4,18 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
-const source = fs.readFileSync(path.join(root, 'questions.js'), 'utf8') + '\n' + fs.readFileSync(path.join(root, 'exam.js'), 'utf8');
+const source = fs.readFileSync(path.join(root, 'questions.js'), 'utf8').replace('export { QUESTIONS };', '') + '\n' + fs.readFileSync(path.join(root, 'exam.js'), 'utf8');
 class Element {
-  constructor() { this.children = []; this.style = {}; this.textContent = ''; this.className = ''; this.classList = { toggle() {} }; }
+  constructor() { this.children = []; this.style = {}; this.textContent = ''; this.className = ''; this.dataset = {}; this.attributes = {}; this.hiddenClasses = new Set(); this.classList = { toggle: (name, enabled) => enabled ? this.hiddenClasses.add(name) : this.hiddenClasses.delete(name) }; }
   append(...children) { this.children.push(...children); }
   replaceChildren() { this.children = []; }
-  setAttribute() {}
+  setAttribute(name, value) { this.attributes[name] = value; }
 }
-function setup(initial) {
+function setup(initial, options = {}) {
   let saved = initial && JSON.stringify(initial), nodes = {};
   const context = { document: { getElementById: id => nodes[id] ||= new Element(), createElement: () => new Element() },
-    localStorage: { getItem: () => saved || null, setItem: (_, value) => { saved = value; } },
-    setTimeout: () => 1, clearTimeout() {}, Date, confirm: () => true, alert: message => { throw Error(message); }, window: { scrollTo() {} } };
+    localStorage: { getItem: () => saved || null, setItem: (_, value) => { if (options.failSave) throw Error('storage unavailable'); saved = value; } },
+    setTimeout: () => 1, clearTimeout() {}, Date, confirm: message => { if (options.confirm) return options.confirm(message); return true; }, alert: message => { throw Error(message); }, window: { scrollTo() {} } };
   vm.createContext(context); vm.runInContext(source, context);
   return { run: code => vm.runInContext(code, context), nodes, saved: () => JSON.parse(saved) };
 }
@@ -68,7 +68,7 @@ test('questions referencing other choices keep their original order', () => {
 test('missing answer keys are excluded and prevent a pass verdict', () => {
   const kit = setup(); kit.run(`start();
     for (const i of state.order) state.answers[i] = QUESTIONS[i].answer;
-    QUESTIONS[state.order[0]].answer = null;
+    state.bank[state.order[0]].answer = null;
     submitExam(false);`);
   assert.equal(kit.nodes.score.textContent, '198 / 198 คะแนน');
   assert.match(kit.nodes.passSummary.children[0].textContent, /ยังสรุปผลผ่านไม่ได้/);
@@ -94,4 +94,44 @@ test('malformed saved order is safely recovered as a legacy attempt', () => {
 test('new exams do not include the duplicate claim-proof question', () => {
   const kit = setup();
   for (let i = 0; i < 100; i++) assert.equal(kit.run('newExamOrder().includes(160)'), false);
+});
+
+test('review filters show only matching answers and an empty state', () => {
+  const kit = setup(); kit.run(`start();
+    const i = state.order[0]; state.answers[i] = (QUESTIONS[i].answer + 1) % QUESTIONS[i].options.length;
+    submitExam(false); filterReviews('incorrect');`);
+  assert.equal(kit.nodes.reviews.children.filter(c => !c.hiddenClasses.has('hidden')).length, 1);
+  assert.equal(kit.nodes['filter-incorrect'].attributes['aria-pressed'], 'true');
+  kit.run("filterReviews('blank')");
+  assert.equal(kit.nodes.reviews.children.filter(c => !c.hiddenClasses.has('hidden')).length, 99);
+  kit.run("filterReviews('all')");
+  assert.equal(kit.nodes.reviews.children.filter(c => !c.hiddenClasses.has('hidden')).length, 100);
+});
+test('submission confirmation reports unanswered count and cancellation preserves the exam', () => {
+  let message; const kit = setup(undefined, { confirm: value => { message = value; return false; } });
+  kit.run('start(); submitExam(false)');
+  assert.match(message, /ยังไม่ตอบ 100 ข้อ/);
+  assert.equal(kit.run('state.finished'), false);
+});
+test('restart begins a new attempt after confirmation', () => {
+  let message; const kit = setup(undefined, { confirm: value => { message = value; return true; } });
+  kit.run('start(); submitExam(false); resetExam()');
+  assert.match(message, /ผลสอบรอบเดิมจะอยู่ในประวัติการสอบ/);
+  assert.equal(kit.run('state.finished'), false);
+  assert.equal(Object.keys(kit.saved().answers).length, 0);
+});
+test('storage failure warns the user while allowing the exam to continue', () => {
+  const kit = setup(undefined, { failSave: true }); kit.run('start()');
+  assert.equal(kit.nodes.storageWarning.hiddenClasses.has('hidden'), false);
+  assert.equal(kit.run('state.order.length'), 100);
+});
+
+test('saved question and grading snapshots survive later question bank changes', () => {
+  const kit = setup(); kit.run('start()'); const before = kit.saved();
+  const i = before.order[0]; before.answers[i] = before.bank[i].answer;
+  const restored = setup(before);
+  restored.run(`QUESTIONS[${i}].options.splice(0); QUESTIONS[${i}].subject = 'changed'; loadState(); submitExam(false);`);
+  assert.equal(restored.run(`state.answers[${i}]`), before.answers[i]);
+  assert.equal(restored.run(`questionAt(${i}).options.length`), before.bank[i].options.length);
+  assert.match(restored.nodes.passSummary.children[0].textContent, /ผ่าน|ไม่ผ่าน/);
 });

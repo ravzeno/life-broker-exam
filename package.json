@@ -1,0 +1,33 @@
+{
+  "name": "life-broker-exam",
+  "version": "1.0.0",
+  "description": "เว็บฝึกทำข้อสอบนายหน้าประกันชีวิต สุ่มสอบ 100 ข้อต่อรอบ เวลา 2 ชั่วโมง 30 นาที พัฒนาด้วย React และ Vite",
+  "directories": {
+    "doc": "docs",
+    "test": "tests"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --test tests/*.test.cjs"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ravzeno/life-broker-exam.git"
+  },
+  "keywords": [],
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/ravzeno/life-broker-exam/issues"
+  },
+  "homepage": "https://github.com/ravzeno/life-broker-exam#readme",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.119.2",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
+  },
+  "devDependencies": {
+    "vite": "^8.3.8"
+  }
+}

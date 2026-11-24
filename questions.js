@@ -3575,3 +3575,5 @@ const QUESTIONS = [
   "subject": "จรรยาบรรณและศีลธรรม"
 }
 ];
+
+export { QUESTIONS };
