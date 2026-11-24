@@ -387,15 +387,15 @@ function App() {
         .join(":");
   return (
     <div className="wrap app-shell">
-      <header className="top app-header">
+      <header className={"top app-header" + (page === "exam" && attempt && !attempt.finished ? " app-header--exam" : "") + (!loading && page === "home" && (!attempt || attempt.finished) ? " app-header--account" : "")}>
         <div className="brand-lockup">
           <span className="brand-mark" aria-hidden="true">L<span>B</span></span>
           <div className="brand-copy"><div className="brand">LIFE BROKER EXAM</div>
           <div className="muted small">ห้องฝึกสอบนายหน้าประกันชีวิต</div></div>
         </div>
-        {page === "exam" && attempt && !attempt.finished && <div className="header-timer"><span>เวลาที่เหลือ</span><div className="pill" aria-label={"เวลาสอบ " + timer}><Clock3 size={17} aria-hidden="true" />{timer}</div></div>}
+        <Auth onUser={onUser} showAccountControls={!loading && page === "home" && (!attempt || attempt.finished)} />
+        {page === "exam" && attempt && !attempt.finished && <div className="exam-header-actions"><button className="danger exam-cancel" onClick={leaveExam}><CircleX size={17} aria-hidden="true" /> ยกเลิกข้อสอบ</button><div className="header-timer"><span>เวลาที่เหลือ</span><div className="pill" aria-label={"เวลาสอบ " + timer}><Clock3 size={17} aria-hidden="true" />{timer}</div></div></div>}
       </header>
-      <Auth onUser={onUser} showAccountControls={!loading && page === "home" && (!attempt || attempt.finished)} />
       {syncWarning && (
         <div className="notice storage-warning" role="alert">
           {syncWarning}{" "}
@@ -451,7 +451,6 @@ function App() {
               onMove={move}
               onClear={clearAnswer}
               onSubmit={submit}
-              onExit={leaveExam}
             />
           )}
           {page === "result" && attempt && (
@@ -522,13 +521,12 @@ function StudyDocument() {
     <a className="secondary" href={`${import.meta.env.BASE_URL}life-broker-study-2567.pdf`} download="เอกสารประกอบการบรรยายติวสอบนายหน้าประกันชีวิต_2567.pdf"><Download size={18} aria-hidden="true" />ดาวน์โหลดเอกสาร</a>
   </section>;
 }
-function Exam({ a, onAnswer, onMove, onClear, onSubmit, onExit }) {
+function Exam({ a, onAnswer, onMove, onClear, onSubmit }) {
   const id = a.order[a.index],
     q = question(a, id),
     n = Object.keys(a.answers).length;
   return (
     <main className="exam-page">
-      <div className="exam-exit"><button className="danger" onClick={onExit}><CircleX size={17} aria-hidden="true" /> ยกเลิกข้อสอบ</button></div>
       <div className="grid">
       <section className="panel question-panel">
         <div className="subject exam-kicker">
