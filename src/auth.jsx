@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { CircleUserRound, LogIn, LogOut, X } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 const config = window.SUPABASE_CONFIG || {};
-const EMAIL_AUTH_ENABLED = false;
+const EMAIL_AUTH_ENABLED = true;
 export const client =
   config.url && config.anonKey
     ? createClient(config.url, config.anonKey, {
@@ -37,6 +37,7 @@ function AccountAvatar({ url }) {
 export function Auth({ onUser, showAccountControls = true }) {
   const [user, setUser] = useState(null),
     [open, setOpen] = useState(false),
+    [choiceRequired, setChoiceRequired] = useState(true),
     [mode, setMode] = useState("signin"),
     [email, setEmail] = useState(""),
     [password, setPassword] = useState(""),
@@ -49,18 +50,34 @@ export function Auth({ onUser, showAccountControls = true }) {
     else if (!open && dialog.open) dialog.close();
   }, [open]);
   useEffect(() => {
+    const dialog = dialogRef.current;
+    function preventDismiss(event) {
+      if (choiceRequired) event.preventDefault();
+    }
+    dialog.addEventListener("cancel", preventDismiss);
+    return () => dialog.removeEventListener("cancel", preventDismiss);
+  }, [choiceRequired]);
+  useEffect(() => {
     if (!client) {
-      onUser(null);
+      setOpen(true);
       return;
     }
     const { data } = client.auth.onAuthStateChange((event, session) => {
+      const hadUser = Boolean(currentUser);
       currentUser = session?.user || null;
       setUser(currentUser);
+      if (currentUser) {
+        setChoiceRequired(false);
+        setOpen(false);
+        onUser(currentUser);
+      } else if (event === "INITIAL_SESSION" || (event === "SIGNED_OUT" && hadUser)) {
+        setChoiceRequired(true);
+        setOpen(true);
+      }
       if (EMAIL_AUTH_ENABLED && event === "PASSWORD_RECOVERY") {
         setMode("recovery");
         setOpen(true);
       }
-      onUser(currentUser);
     });
     return () => data.subscription.unsubscribe();
   }, [onUser]);
@@ -68,6 +85,11 @@ export function Auth({ onUser, showAccountControls = true }) {
     setMode(nextMode);
     setPassword("");
     setMessage("");
+  }
+  function continueAsGuest() {
+    setChoiceRequired(false);
+    setOpen(false);
+    onUser(null);
   }
   async function perform(fn) {
     setBusy(true);
@@ -119,20 +141,23 @@ export function Auth({ onUser, showAccountControls = true }) {
           </button>
         )}
       </div>}
-      <dialog ref={dialogRef} id="account-panel" className="auth-panel" aria-labelledby="auth-title" onClose={() => setOpen(false)}>
+      <dialog ref={dialogRef} id="account-panel" className="auth-panel" aria-labelledby="auth-title" onClose={() => {
+        if (choiceRequired) dialogRef.current?.showModal();
+        else setOpen(false);
+      }}>
         <div className="auth-heading">
           <h2 id="auth-title">{!client ? "ระบบบัญชียังไม่พร้อม" : mode === "signup" ? "สมัครสมาชิก" : mode === "forgot" || mode === "recovery" ? "ตั้งรหัสผ่านใหม่" : "เข้าสู่ระบบ"}</h2>
-          <button className="auth-close" type="button" aria-label="ปิดหน้าต่างเข้าสู่ระบบ" onClick={() => setOpen(false)}>
+          {!choiceRequired && <button className="auth-close" type="button" aria-label="ปิดหน้าต่างเข้าสู่ระบบ" onClick={() => setOpen(false)}>
             <X size={20} aria-hidden="true" />
-          </button>
+          </button>}
         </div>
         <p className="auth-caption muted small">{!client ? "ขณะนี้ยังเข้าสู่ระบบไม่ได้ คุณยังสามารถทำข้อสอบแบบ Guest ได้ตามปกติ" : mode === "forgot" ? "กรอกอีเมลเพื่อรับลิงก์ตั้งรหัสผ่านใหม่" : mode === "recovery" ? "ตั้งรหัสผ่านใหม่สำหรับบัญชีของคุณ" : mode === "signup" ? "สมัครสมาชิกเพื่อเก็บประวัติและเปิดดูบนอุปกรณ์อื่น" : "เข้าสู่ระบบเพื่อเก็บประวัติและเปิดดูบนอุปกรณ์อื่น"}</p>
         <p className="auth-message" role="status">{message}</p>
-        {client && mode !== "forgot" && mode !== "recovery" && <button className="secondary auth-google" type="button" disabled={busy} onClick={() => perform(() => client.auth.signInWithOAuth({ provider: "google", options: { redirectTo: location.origin + location.pathname } }))}>
-          <img className="google-logo" src={`${import.meta.env.BASE_URL}google-logo.png`} alt="" /> {mode === "signup" ? "สมัครสมาชิกด้วย Google" : "เข้าสู่ระบบด้วย Google"}
+        {client && mode === "signin" && <button className="secondary auth-google" type="button" disabled={busy} onClick={() => perform(() => client.auth.signInWithOAuth({ provider: "google", options: { redirectTo: location.origin + location.pathname } }))}>
+          <img className="google-logo" src={`${import.meta.env.BASE_URL}google-logo.png`} alt="" /> เข้าสู่ระบบด้วย Google
         </button>}
         {EMAIL_AUTH_ENABLED && client && <>
-          {(mode === "signin" || mode === "signup") && <div className="auth-divider"><span>{mode === "signup" ? "หรือสมัครด้วยอีเมล" : "หรือเข้าสู่ระบบด้วยอีเมล"}</span></div>}
+          {mode === "signin" && <div className="auth-divider"><span>หรือเข้าสู่ระบบด้วยอีเมล</span></div>}
           <form onSubmit={submit}>
             {mode !== "recovery" && <><label htmlFor="auth-email">อีเมล</label><input id="auth-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required maxLength={254} autoComplete="email" /></>}
             {mode !== "forgot" && <>
@@ -145,7 +170,7 @@ export function Auth({ onUser, showAccountControls = true }) {
         </>}
         {mode !== "recovery" && <div className="auth-options">
           {EMAIL_AUTH_ENABLED && client && <div className="auth-switch">{mode === "signin" ? "ยังไม่มีบัญชี?" : "มีบัญชีแล้ว?"} <button className="auth-link" type="button" onClick={() => changeMode(mode === "signin" ? "signup" : "signin")}>{mode === "signin" ? "สมัครสมาชิก" : "เข้าสู่ระบบ"}</button></div>}
-          <button className="auth-link auth-guest" type="button" onClick={() => setOpen(false)}>ทำข้อสอบแบบ Guest</button>
+          <button className="auth-link auth-guest" type="button" onClick={continueAsGuest}>ทำข้อสอบแบบ Guest</button>
         </div>}
       </dialog>
     </div>
