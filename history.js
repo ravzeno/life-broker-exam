@@ -154,6 +154,21 @@
     if (!auth) throw new Error('กรุณาเข้าสู่ระบบ');
     pendingWrite(auth.userId, pendingRead(auth.userId).filter(item => item.id !== id));
   }
+  async function deleteAttempt(id) {
+    if (!uuid.test(id)) throw new Error('รหัสรอบสอบไม่ถูกต้อง');
+    const auth = authContext();
+    if (!auth) {
+      guestWrite(guestRead().filter(item => item.id !== id));
+      return;
+    }
+    return enqueue(auth.userId + ':' + id, async () => {
+      if (authContext()?.userId !== auth.userId) throw new Error('บัญชีเปลี่ยนระหว่างลบข้อสอบ');
+      const { error } = await auth.client.from('exam_attempts').delete().eq('user_id', auth.userId).eq('id', id);
+      if (error) throw new Error('ลบข้อสอบออนไลน์ไม่สำเร็จ');
+      if (authContext()?.userId !== auth.userId) throw new Error('บัญชีเปลี่ยนระหว่างลบข้อสอบ');
+      pendingWrite(auth.userId, pendingRead(auth.userId).filter(item => item.id !== id));
+    });
+  }
   async function syncPending() {
     const auth = authContext();
     if (!auth) throw new Error('กรุณาเข้าสู่ระบบก่อนซิงก์ข้อมูล');
@@ -180,5 +195,5 @@
     }
     return copied;
   }
-  window.examHistory = { makeId, saveAttempt, listAttempts, getAttempt, copyGuestAttempts, syncPending, pendingCount, pendingAttempts, discardPending };
+  window.examHistory = { makeId, saveAttempt, listAttempts, getAttempt, deleteAttempt, copyGuestAttempts, syncPending, pendingCount, pendingAttempts, discardPending };
 }());

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { ArrowDown, ArrowLeft, ArrowRight, CircleX, ClipboardList, Clock3, Download, File, History, House, RotateCcw, Send } from "lucide-react";
 import { createRoot } from "react-dom/client";
 import { Auth } from "./auth.jsx";
 import { reconcile } from "./reconcile.js";
@@ -14,6 +15,7 @@ import {
   result,
 } from "./exam-model.js";
 import "./styles.css";
+import "./redesign.css";
 const history = window.examHistory;
 const snapshotRecord = (a) => ({
   id: a.id,
@@ -35,9 +37,11 @@ function App() {
     [historyMessage, setHistoryMessage] = useState(""),
     [filter, setFilter] = useState("all");
   const ref = useRef(null),
+    historyOrigin = useRef("home"),
     key = useRef(BASE_KEY),
     owner = useRef(""),
     needsReconcile = useRef(false),
+    discarding = useRef(false),
     version = useRef(0),
     epoch = useRef(0);
   const setCurrent = (a) => {
@@ -85,9 +89,25 @@ function App() {
     }
     saveHistory(a);
   }
-  function showCurrent(a) {
+  function setHomePreference(attemptId) {
+    try {
+      if (attemptId) sessionStorage.setItem(key.current + "-home", attemptId);
+      else sessionStorage.removeItem(key.current + "-home");
+    } catch (_) {
+      // Navigation still works when session storage is unavailable.
+    }
+  }
+  function showCurrent(a, restoreHome = false) {
     setFilter("all");
-    setPage(!a ? "home" : a.finished ? "result" : "exam");
+    let homeWasSelected = false;
+    if (restoreHome && a) {
+      try {
+        homeWasSelected = sessionStorage.getItem(key.current + "-home") === a.id;
+      } catch (_) {}
+    } else {
+      setHomePreference(null);
+    }
+    setPage(!a || homeWasSelected ? "home" : a.finished ? "result" : "exam");
   }
   async function reconcileAccount(userId, current, token, onSelected) {
     return reconcile({
@@ -146,7 +166,7 @@ function App() {
       }
       if (cancelled || token !== epoch.current) return;
       setCurrent(a);
-      showCurrent(a);
+      showCurrent(a, true);
       setLoading(false);
     })();
     return () => {
@@ -161,6 +181,7 @@ function App() {
   useEffect(() => {
     if (
       !loading &&
+      !discarding.current &&
       attempt === ref.current &&
       attempt &&
       !attempt.finished &&
@@ -188,6 +209,7 @@ function App() {
   function start() {
     try {
       const a = newAttempt(history.makeId());
+      setHomePreference(null);
       persist(a);
       setNow(Date.now());
       setPage("exam");
@@ -202,6 +224,40 @@ function App() {
       return;
     }
     if (confirm("เริ่มสอบใหม่? ผลสอบรอบเดิมจะอยู่ในประวัติการสอบ")) start();
+  }
+  async function leaveExam() {
+    if (expired()) return;
+    if (!confirm("ยกเลิกข้อสอบรอบนี้? คำตอบและประวัติของรอบนี้จะถูกลบ และไม่สามารถนำกลับมาได้")) return;
+    if (expired()) return;
+    const current = ref.current, account = owner.current, token = epoch.current;
+    discarding.current = true;
+    setLoading(true);
+    try {
+      await history.deleteAttempt(current.id);
+      if (epoch.current !== token || owner.current !== account) return;
+      localStorage.removeItem(key.current);
+      setHomePreference(null);
+      version.current++;
+      setCurrent(null);
+      setFailed(false);
+      setStorageWarning(false);
+      if (!needsReconcile.current) setSyncWarning("");
+      setPage("home");
+      window.scrollTo(0, 0);
+    } catch (_) {
+      if (epoch.current === token && owner.current === account) {
+        alert("ยกเลิกข้อสอบไม่สำเร็จ โปรดตรวจสอบการเชื่อมต่อหรือพื้นที่จัดเก็บ แล้วลองอีกครั้ง");
+      }
+    } finally {
+      discarding.current = false;
+      if (epoch.current === token) setLoading(false);
+    }
+  }
+  function resumeExam() {
+    if (expired()) return;
+    setHomePreference(null);
+    setPage("exam");
+    window.scrollTo(0, 0);
   }
   function move(i) {
     if (expired()) return;
@@ -241,6 +297,7 @@ function App() {
   }
   async function showHistory() {
     const account = owner.current;
+    historyOrigin.current = page;
     setPage("history");
     window.scrollTo(0, 0);
     setRecords([]);
@@ -336,9 +393,9 @@ function App() {
           <div className="brand-copy"><div className="brand">LIFE BROKER EXAM</div>
           <div className="muted small">ห้องฝึกสอบนายหน้าประกันชีวิต</div></div>
         </div>
-        <div className="header-timer"><span>{attempt?.finished ? "สถานะการสอบ" : "เวลาสอบ"}</span><div className="pill" aria-label={attempt?.finished ? "ส่งข้อสอบแล้ว" : "เวลาสอบ " + timer}>{timer}</div></div>
+        {page === "exam" && attempt && !attempt.finished && <div className="header-timer"><span>เวลาที่เหลือ</span><div className="pill" aria-label={"เวลาสอบ " + timer}><Clock3 size={17} aria-hidden="true" />{timer}</div></div>}
       </header>
-      <Auth onUser={onUser} />
+      <Auth onUser={onUser} showAccountControls={!loading && page === "home" && (!attempt || attempt.finished)} />
       {syncWarning && (
         <div className="notice storage-warning" role="alert">
           {syncWarning}{" "}
@@ -361,14 +418,12 @@ function App() {
             <main className="home-page">
               <div className="home-hero">
                 <section className="home-intro">
-                  <div className="subject">พื้นที่ฝึกสอบสำหรับคุณ</div>
                   <h1>เตรียมตัวให้พร้อม<br />ก่อนวันสอบจริง</h1>
-                  <p className="muted">ทบทวนความรู้และทดลองทำข้อสอบจำลอง เพื่อให้คุณเห็นจุดที่ควรฝึกเพิ่มเติมในแต่ละหมวด</p>
                   <div className="home-actions">
-                    <button className="primary" onClick={start}>เริ่มทำข้อสอบ <span aria-hidden="true">→</span></button>
-                    <button className="secondary" onClick={showHistory}>ดูประวัติการสอบ</button>
+                    <button className="primary" onClick={attempt && !attempt.finished ? resumeExam : attempt ? restart : start}>{attempt && !attempt.finished ? "ทำข้อสอบต่อ" : "เริ่มทำข้อสอบ"} <ArrowRight size={18} aria-hidden="true" /></button>
+                    <button className="secondary" onClick={showHistory}><History size={18} aria-hidden="true" />ดูประวัติการสอบ</button>
                   </div>
-                  <p className="home-save-note muted small">บันทึกคำตอบในเบราว์เซอร์เครื่องนี้ เพื่อกลับมาทำต่อก่อนหมดเวลา</p>
+                  <p className="home-save-note muted small">{attempt && !attempt.finished ? `เวลาสอบยังนับต่อ เหลือ ${timer} ชั่วโมง` : "บันทึกคำตอบในเบราว์เซอร์เครื่องนี้ เพื่อกลับมาทำต่อก่อนหมดเวลา"}</p>
                 </section>
                 <aside className="home-side" aria-label="รายละเอียดข้อสอบจำลอง">
                   <div className="overview-heading"><div><div className="subject">ภาพรวมการสอบ</div><h2>ข้อสอบจำลอง</h2></div><span>100 ข้อ</span></div>
@@ -385,8 +440,8 @@ function App() {
                   </div>
                 </aside>
               </div>
+              <StudyDocument />
               <div className="notice">ข้อสอบและเฉลยอ้างอิงเอกสารปี 2567 บางข้อมีความกำกวมหรืออนุมานจากเนื้อหาในเอกสาร เกณฑ์จำลอง: จรรยาบรรณอย่างน้อย 14/20 และวิชาชีพกับกฎหมายรวมกันอย่างน้อย 108/180 คะแนน โปรดตรวจสอบกฎหมายและเกณฑ์สอบปัจจุบันกับ คปภ.</div>
-              <p className="muted small">ข้อที่อ้างถึงตัวเลือกอื่นจะคงลำดับและตัวอักษรเดิม</p>
             </main>
           )}
           {page === "exam" && attempt && (
@@ -396,6 +451,7 @@ function App() {
               onMove={move}
               onClear={clearAnswer}
               onSubmit={submit}
+              onExit={leaveExam}
             />
           )}
           {page === "result" && attempt && (
@@ -403,26 +459,18 @@ function App() {
               a={attempt}
               onRestart={restart}
               onHistory={showHistory}
+              onHome={() => { setHomePreference(attempt.id); setPage("home"); window.scrollTo(0, 0); }}
               filter={filter}
               setFilter={setFilter}
             />
           )}
           {page === "history" && (
             <main className="panel history-page">
-              <div className="history-header"><div className="subject">ผลสอบที่ผ่านมา</div>
-              <h1>ประวัติการสอบ</h1></div>
-              <p className="muted">
-                Guest เก็บประวัติไว้ในเบราว์เซอร์นี้ ·
-                บัญชีที่เข้าสู่ระบบสามารถเปิดดูข้ามอุปกรณ์ได้
-              </p>
-              <p className="muted small">
-                หากทำข้อสอบรอบเดียวกันบนหลายอุปกรณ์พร้อมกัน
-                ข้อมูลที่บันทึกล่าสุดอาจทับกัน
-              </p>
+              <div className="history-header"><h1>ประวัติการสอบ</h1></div>
               <div className="actions">
                 <button
                   className="secondary"
-                  onClick={() => showCurrent(ref.current)}
+                  onClick={() => historyOrigin.current === "home" ? setPage("home") : showCurrent(ref.current)}
                 >
                   กลับ
                 </button>
@@ -468,12 +516,20 @@ function App() {
     </div>
   );
 }
-function Exam({ a, onAnswer, onMove, onClear, onSubmit }) {
+function StudyDocument() {
+  return <section className="study-document" aria-label="เอกสารประกอบการติวสอบ">
+    <div className="document-copy"><span className="document-type" aria-hidden="true"><File size={29} strokeWidth={1.6} /><b>PDF</b></span><div><strong>เอกสารประกอบการติวสอบ</strong><span>ฉบับปี 2567 · PDF ประมาณ 9 MB</span></div></div>
+    <a className="secondary" href={`${import.meta.env.BASE_URL}life-broker-study-2567.pdf`} download="เอกสารประกอบการบรรยายติวสอบนายหน้าประกันชีวิต_2567.pdf"><Download size={18} aria-hidden="true" />ดาวน์โหลดเอกสาร</a>
+  </section>;
+}
+function Exam({ a, onAnswer, onMove, onClear, onSubmit, onExit }) {
   const id = a.order[a.index],
     q = question(a, id),
     n = Object.keys(a.answers).length;
   return (
-    <main className="grid exam-page">
+    <main className="exam-page">
+      <div className="exam-exit"><button className="danger" onClick={onExit}><CircleX size={17} aria-hidden="true" /> ยกเลิกข้อสอบ</button></div>
+      <div className="grid">
       <section className="panel question-panel">
         <div className="subject exam-kicker">
           {q.subject} • หน้า {q.page} ของ PDF
@@ -482,7 +538,7 @@ function Exam({ a, onAnswer, onMove, onClear, onSubmit }) {
           <strong>
             ข้อ {a.index + 1} / {a.order.length}
           </strong>
-          <span className="exam-progress-meta"><span className="muted small">ตอบแล้ว {n} ข้อ</span><a className="answer-sheet-link" href="#answer-sheet">ดูกระดาษคำตอบ ↓</a></span>
+          <span className="exam-progress-meta"><span className="muted small">ตอบแล้ว {n} ข้อ</span><a className="answer-sheet-link" href="#answer-sheet">ดูกระดาษคำตอบ <ArrowDown size={14} aria-hidden="true" /></a></span>
         </div>
         <div className="progress">
           <div style={{ width: (n / a.order.length) * 100 + "%" }} />
@@ -504,23 +560,23 @@ function Exam({ a, onAnswer, onMove, onClear, onSubmit }) {
         </div>
         <div className="actions exam-navigation">
           <button className="secondary" onClick={() => onMove(a.index - 1)}>
-            ← ก่อนหน้า
+            <ArrowLeft size={18} aria-hidden="true" /> ก่อนหน้า
           </button>
           <button className="secondary" onClick={() => onMove(a.index + 1)}>
-            ถัดไป →
+            ถัดไป <ArrowRight size={18} aria-hidden="true" />
           </button>
         </div>
         <div className="actions exam-tools">
           <button className="secondary" onClick={onClear}>
-            ล้างคำตอบข้อนี้
+            <RotateCcw size={17} aria-hidden="true" /> ล้างคำตอบข้อนี้
           </button>
           <button className="danger" onClick={onSubmit}>
-            ส่งข้อสอบ
+            <Send size={17} aria-hidden="true" /> ส่งข้อสอบ
           </button>
         </div>
       </section>
       <aside id="answer-sheet" className="panel exam-sidebar" tabIndex={-1}>
-        <div className="sidebar-heading"><h3>กระดาษคำตอบ</h3><span>{n} / {a.order.length}</span></div>
+        <div className="sidebar-heading"><h3><ClipboardList size={19} aria-hidden="true" /> กระดาษคำตอบ</h3><span>{n} / {a.order.length}</span></div>
         <p className="muted small sidebar-legend">
           แตะหมายเลขเพื่อไปยังข้อที่ต้องการ · สีเข้มคือข้อที่ตอบแล้ว
         </p>
@@ -545,12 +601,13 @@ function Exam({ a, onAnswer, onMove, onClear, onSubmit }) {
             </button>
           ))}
         </div>
-        <p className="muted small">ยังไม่ตอบ {a.order.length - n} ข้อ</p>
+        <p className="muted small sidebar-unanswered">ยังไม่ตอบ {a.order.length - n} ข้อ</p>
       </aside>
+      </div>
     </main>
   );
 }
-function Result({ a, onRestart, onHistory, filter, setFilter }) {
+function Result({ a, onRestart, onHistory, onHome, filter, setFilter }) {
   const r = result(a),
     n = Object.keys(a.answers).length,
     used = Math.max(0, Math.min(DURATION, (a.ended || Date.now()) - a.started));
@@ -578,10 +635,13 @@ function Result({ a, onRestart, onHistory, filter, setFilter }) {
       <div className="result-header"><div><div className="subject">ผลการทำข้อสอบ</div>
       <h1>ส่งข้อสอบเรียบร้อย</h1></div><div className="result-actions">
       <button className="primary" onClick={onRestart}>
-        เริ่มสอบใหม่
+        <RotateCcw size={18} aria-hidden="true" /> เริ่มสอบใหม่
       </button>{" "}
       <button className="secondary" onClick={onHistory}>
-        ประวัติการสอบ
+        <History size={18} aria-hidden="true" /> ประวัติการสอบ
+      </button>
+      <button className="secondary" onClick={onHome}>
+        <House size={18} aria-hidden="true" /> กลับหน้าแรก
       </button></div></div>
       {r.verified > 0 && (
         <div className="score-card" aria-label="คะแนนสอบ">

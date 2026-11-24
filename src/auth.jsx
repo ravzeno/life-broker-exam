@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import { LogIn, LogOut } from "lucide-react";
 import { createClient } from "@supabase/supabase-js";
 const config = window.SUPABASE_CONFIG || {};
 export const client =
@@ -17,7 +18,7 @@ window.examAuth = {
   isConfigured: !!client,
   getUser: () => currentUser,
 };
-export function Auth({ onUser }) {
+export function Auth({ onUser, showAccountControls = true }) {
   const [user, setUser] = useState(null),
     [mode, setMode] = useState("signin"),
     [open, setOpen] = useState(false),
@@ -102,19 +103,17 @@ export function Auth({ onUser }) {
   }
   return (
     <div>
-      <div className="auth-bar">
-        <span className="auth-status">
-          {user
-            ? "บัญชี: " + (user.email || "เข้าสู่ระบบแล้ว")
-            : "ใช้งานแบบ Guest · ประวัติอยู่ในเครื่องนี้"}
-        </span>
+      {showAccountControls && <div className="auth-bar">
+        {user && <span className="auth-status">
+          {"บัญชี: " + (user.email || "เข้าสู่ระบบแล้ว")}
+        </span>}
         {user ? (
           <button
             className="secondary"
             disabled={busy}
             onClick={() => perform(() => client.auth.signOut())}
           >
-            ออกจากระบบ
+            <LogOut size={16} aria-hidden="true" /> ออกจากระบบ
           </button>
         ) : (
           <button
@@ -126,10 +125,10 @@ export function Auth({ onUser }) {
               setMessage("");
             }}
           >
-            เข้าสู่ระบบ / สมัครสมาชิก
+            <LogIn size={16} aria-hidden="true" /> เข้าสู่ระบบ / สมัครสมาชิก
           </button>
         )}
-      </div>
+      </div>}
       <dialog ref={dialogRef} id="account-panel" className="auth-panel" aria-labelledby="auth-title" onClose={() => setOpen(false)}>
           <div className="auth-heading">
             <h2 id="auth-title">

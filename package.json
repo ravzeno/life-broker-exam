@@ -24,6 +24,7 @@
   "homepage": "https://github.com/ravzeno/life-broker-exam#readme",
   "dependencies": {
     "@supabase/supabase-js": "^2.119.2",
+    "lucide-react": "^1.78.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },
